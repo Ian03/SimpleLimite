@@ -569,7 +569,7 @@ class MonitorWindow(ctk.CTk):
                         _save_config({"session_limit": new_limit})
                         saved.append(f"Limite: {fmt_tok(new_limit)}")
                 except ValueError:
-                    errors.append("% inválido (use 1–100).")
+                    errors.append("% inválido — informe um valor entre 1 e 100.")
 
             # calibrar reset
             h_raw = entry_h.get().strip()
@@ -596,9 +596,22 @@ class MonitorWindow(ctk.CTk):
             else:
                 lbl_result.configure(text="Preencha ao menos um campo.", text_color=MUTED)
 
-        ctk.CTkButton(dlg, text="Calibrar", command=apply,
+        def reset_limit():
+            cfg = _load_config()
+            cfg.pop("session_limit", None)
+            CONFIG_FILE.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+            lbl_result.configure(text="Limite resetado para o padrão.", text_color=MUTED)
+            self.after(1400, dlg.destroy)
+            self.after(1400, self._update_session_bar)
+
+        btn_row = ctk.CTkFrame(dlg, fg_color="transparent")
+        btn_row.pack(pady=8)
+        ctk.CTkButton(btn_row, text="Calibrar", command=apply,
                       fg_color=BLUE, hover_color="#4080cc",
-                      font=("Segoe UI", 12, "bold"), width=140).pack(pady=8)
+                      font=("Segoe UI", 12, "bold"), width=130).pack(side="left", padx=6)
+        ctk.CTkButton(btn_row, text="Resetar limite", command=reset_limit,
+                      fg_color="#30363d", hover_color="#484f58",
+                      font=("Segoe UI", 11), width=120).pack(side="left", padx=6)
 
     def _update_session_bar(self):
         w = self.watcher
