@@ -2,10 +2,12 @@
 """
 Claude Token Monitor
 Minimal pill + expanded detail view.
-Session limits via Anthropic OAuth API; project costs via local JSONL.
+Session limits via Anthropic/Cursor OAuth APIs; project costs via local JSONL.
 """
 
 import json
+import os
+import sqlite3
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -25,6 +27,10 @@ CREDS_FILE   = CLAUDE_DIR / ".credentials.json"
 CONFIG_FILE  = Path(__file__).parent / "config.json"
 CODEX_DIR    = Path.home() / ".codex"
 CODEX_SESSIONS_DIR = CODEX_DIR / "sessions"
+CURSOR_DIR   = Path.home() / ".cursor"
+CURSOR_PROJECTS_DIR = CURSOR_DIR / "projects"
+CURSOR_AUTH_FILE = Path(os.environ.get("APPDATA", "")) / "Cursor" / "auth.json"
+CURSOR_STATE_DB  = Path(os.environ.get("APPDATA", "")) / "Cursor" / "User" / "globalStorage" / "state.vscdb"
 
 # ── Intervals ─────────────────────────────────────────────────────────────────
 POLL_API_SEC  = 60
@@ -471,6 +477,409 @@ class CodexLoader:
 
 
 # ════════════════════════════════════════════════════════════════════════════════
+#  Cursor API + local stats
+# ════════════════════════════════════════════════════════════════════════════════
+_CURSOR_API_BASE = "https://api2.cursor.sh/aiserver.v1.DashboardService"
+_CURSOR_OAUTH_URL = "https://api2.cursor.sh/oauth/token"
+_CURSOR_CLIENT_ID = "KbZUR41cY7W6zRSdpSUJ7I7mLYBKOCmB"
+
+
+def _parse_cursor_ms(value) -> "datetime | None":
+    if value is None or value == "":
+        return None
+    try:
+        ms = int(float(value))
+        return datetime.fromtimestamp(ms / 1000, tz=timezone.utc)
+    except Exception:
+        return None
+
+
+def _decode_jwt_payload(token: str) -> dict:
+    parts = token.split(".")
+    if len(parts) < 2:
+        return {}
+    payload = parts[1]
+    pad = "=" * ((4 - len(payload) % 4) % 4)
+    try:
+        import base64
+        raw = base64.urlsafe_b64decode(payload + pad)
+        return json.loads(raw.decode("utf-8"))
+    except Exception:
+        return {}
+
+
+def _is_token_expired(token: str, skew_sec: int = 60) -> bool:
+    exp = _decode_jwt_payload(token).get("exp")
+    if not isinstance(exp, (int, float)):
+        return False
+    return datetime.now(tz=timezone.utc).timestamp() >= exp - skew_sec
+
+
+def _read_cursor_token_from_db() -> "tuple[str | None, str | None]":
+    if not CURSOR_STATE_DB.exists():
+        return None, None
+    try:
+        con = sqlite3.connect(f"file:{CURSOR_STATE_DB}?mode=ro", uri=True)
+        access = refresh = None
+        for key, target in (
+            ("cursorAuth/accessToken", "access"),
+            ("cursorAuth/refreshToken", "refresh"),
+        ):
+            row = con.execute(
+                "SELECT value FROM ItemTable WHERE key = ? LIMIT 1", (key,)
+            ).fetchone()
+            if not row:
+                continue
+            val = str(row[0]).strip().strip('"').strip("'")
+            if target == "access":
+                access = val or None
+            else:
+                refresh = val or None
+        con.close()
+        return access, refresh
+    except Exception:
+        return None, None
+
+
+def _refresh_cursor_token(refresh_token: str) -> "str | None":
+    try:
+        resp = _requests.post(
+            _CURSOR_OAUTH_URL,
+            json={
+                "grant_type": "refresh_token",
+                "client_id": _CURSOR_CLIENT_ID,
+                "refresh_token": refresh_token,
+            },
+            timeout=10,
+        )
+        if not resp.ok:
+            return None
+        data = resp.json()
+        if data.get("shouldLogout"):
+            return None
+        return data.get("access_token")
+    except Exception:
+        return None
+
+
+def _read_cursor_token() -> "str | None":
+    access = refresh = None
+    if CURSOR_AUTH_FILE.exists():
+        try:
+            data = json.loads(CURSOR_AUTH_FILE.read_text(encoding="utf-8"))
+            access = data.get("accessToken") or data.get("access_token")
+            refresh = data.get("refreshToken") or data.get("refresh_token")
+        except Exception:
+            pass
+    if not access:
+        access, refresh = _read_cursor_token_from_db()
+    if access and _is_token_expired(access) and refresh:
+        access = _refresh_cursor_token(refresh) or access
+    return access
+
+
+def _cursor_headers(token: str) -> dict:
+    return {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "Connect-Protocol-Version": "1",
+        "User-Agent": "SimpleLimite/1.0",
+    }
+
+
+def _cursor_post(token: str, endpoint: str, body: dict | None = None) -> dict:
+    resp = _requests.post(
+        f"{_CURSOR_API_BASE}/{endpoint}",
+        headers=_cursor_headers(token),
+        json=body if body is not None else {},
+        timeout=15,
+    )
+    if resp.status_code in (401, 403):
+        raise PermissionError("Token expirado — reabra o Cursor")
+    if not resp.ok:
+        raise RuntimeError(f"HTTP {resp.status_code}")
+    return resp.json()
+
+
+def _normalize_cursor_limits(usage_raw: dict, plan_name: str) -> list[dict]:
+    plan = usage_raw.get("planUsage") or {}
+    reset_at = _parse_cursor_ms(
+        usage_raw.get("billingCycleEnd") or usage_raw.get("billingCycleStart")
+    )
+    limits: list[dict] = []
+
+    def _add(label: str, pct_raw, is_session: bool = False):
+        if pct_raw is None:
+            return
+        pct = min(max(float(pct_raw), 0), 100)
+        limits.append({
+            "label": label,
+            "pct": pct,
+            "reset_at": reset_at,
+            "kind": "timed",
+            "used_usd": 0,
+            "cap_usd": 0,
+            "is_session": is_session,
+        })
+
+    _add("Total incluído", plan.get("totalPercentUsed"), is_session=True)
+    _add("Auto + Composer", plan.get("autoPercentUsed"))
+    _add("API", plan.get("apiPercentUsed"))
+
+    limit_cents = plan.get("limit")
+    total_spend = plan.get("totalSpend")
+    if isinstance(limit_cents, (int, float)) and limit_cents > 0:
+        used = float(total_spend or 0) / 100
+        cap = float(limit_cents) / 100
+        pct = min(max(used / cap * 100, 0), 100) if cap > 0 else 0
+        limits.append({
+            "label": f"Plano {plan_name}",
+            "pct": pct,
+            "reset_at": reset_at,
+            "kind": "credits",
+            "used_usd": used,
+            "cap_usd": cap,
+            "is_session": False,
+        })
+
+    limits.sort(key=lambda x: (not x["is_session"], -x["pct"]))
+    return limits
+
+
+def fetch_cursor_limits() -> "tuple[list[dict], str | None, str | None]":
+    token = _read_cursor_token()
+    if not token:
+        return [], None, "Token não encontrado (Cursor auth)"
+    try:
+        usage_raw = _cursor_post(token, "GetCurrentPeriodUsage")
+        plan_raw = _cursor_post(token, "GetPlanInfo")
+        plan_name = (plan_raw.get("planInfo") or {}).get("planName") or "Cursor"
+        if usage_raw.get("enabled") is False or not usage_raw.get("planUsage"):
+            return [], plan_name, "Sem assinatura Cursor ativa"
+        return _normalize_cursor_limits(usage_raw, plan_name), plan_name, None
+    except PermissionError as e:
+        return [], None, str(e)
+    except _requests.exceptions.ConnectionError as e:
+        return [], None, f"Sem conexão: {e}"
+    except _requests.exceptions.Timeout:
+        return [], None, "Timeout ao contactar Cursor API"
+    except Exception as e:
+        return [], None, str(e)
+
+
+def fetch_cursor_usage_events(token: str) -> list[dict]:
+    events: list[dict] = []
+    page = 1
+    while page <= 50:
+        try:
+            data = _cursor_post(token, "GetFilteredUsageEvents", {"pageSize": 100, "page": page})
+        except Exception:
+            break
+        batch = data.get("usageEventsDisplay") or []
+        if not batch:
+            break
+        events.extend(batch)
+        total = data.get("totalUsageEventsCount")
+        if isinstance(total, int) and len(events) >= total:
+            break
+        if len(batch) < 100:
+            break
+        page += 1
+    return events
+
+
+def _readable_cursor_project(folder: str) -> str:
+    parts = folder.split("-")
+    if len(parts) > 1 and len(parts[0]) == 1 and parts[0].isalpha():
+        return parts[-1].replace("-", " ") or folder
+    return folder.replace("-", " ")
+
+
+class CursorStats:
+    __slots__ = ("inp", "out", "cached", "cost_cents", "events")
+
+    def __init__(self):
+        self.inp = self.out = self.cached = self.events = 0
+        self.cost_cents = 0.0
+
+    def add(self, usage: dict):
+        self.inp    += int(usage.get("inputTokens") or 0)
+        self.out    += int(usage.get("outputTokens") or 0)
+        self.cached += int(usage.get("cacheReadTokens") or 0)
+        self.cost_cents += float(usage.get("totalCents") or 0)
+        self.events += 1
+
+    @property
+    def total(self):
+        return self.inp + self.out
+
+
+class CursorProjectStats:
+    __slots__ = ("messages",)
+
+    def __init__(self):
+        self.messages = 0
+
+
+class CursorLoader:
+    def __init__(self):
+        self.today    = CursorStats()
+        self.alltime  = CursorStats()
+        self.projects: dict[str, CursorProjectStats] = {}
+        self.limits: list[dict] = []
+        self.plan_name: "str | None" = None
+        self.error: "str | None" = None
+        self.updated_at: "datetime | None" = None
+        self._lock = threading.Lock()
+
+    def reload(self):
+        today_date = datetime.now().date()
+        today = CursorStats()
+        alltime = CursorStats()
+        projects: dict[str, CursorProjectStats] = {}
+
+        token = _read_cursor_token()
+        limits: list[dict] = []
+        plan_name = None
+        err = None
+
+        if not token:
+            err = "Cursor não encontrado (auth)"
+        else:
+            limits, plan_name, err = fetch_cursor_limits()
+            if token and not err:
+                for ev in fetch_cursor_usage_events(token):
+                    usage = ev.get("tokenUsage")
+                    if not usage:
+                        continue
+                    alltime.add(usage)
+                    ts = _parse_cursor_ms(ev.get("timestamp"))
+                    if ts and ts.astimezone().date() == today_date:
+                        today.add(usage)
+
+        if CURSOR_PROJECTS_DIR.exists():
+            for proj_dir in CURSOR_PROJECTS_DIR.iterdir():
+                if not proj_dir.is_dir():
+                    continue
+                name = _readable_cursor_project(proj_dir.name)
+                count = 0
+                transcripts = proj_dir / "agent-transcripts"
+                if not transcripts.exists():
+                    continue
+                for jf in transcripts.rglob("*.jsonl"):
+                    try:
+                        with open(jf, encoding="utf-8", errors="ignore") as f:
+                            for line in f:
+                                line = line.strip()
+                                if not line:
+                                    continue
+                                try:
+                                    d = json.loads(line)
+                                except json.JSONDecodeError:
+                                    continue
+                                if d.get("role") == "assistant":
+                                    count += 1
+                    except Exception:
+                        continue
+                if count > 0:
+                    ps = CursorProjectStats()
+                    ps.messages = count
+                    projects[name] = ps
+
+        projects = dict(sorted(projects.items(), key=lambda x: x[1].messages, reverse=True))
+
+        with self._lock:
+            if alltime.total == 0 and self.alltime.total > 0 and not limits:
+                self.updated_at = datetime.now()
+                return
+            self.today = today
+            self.alltime = alltime
+            self.projects = projects
+            if limits:
+                self.limits = limits
+            self.plan_name = plan_name
+            self.error = err if not limits and alltime.total == 0 else None
+            if err and limits:
+                self.error = None
+            if not limits and not err and alltime.total == 0 and not projects:
+                self.error = "Sem dados do Cursor"
+            self.updated_at = datetime.now()
+
+    def mins_to_reset(self, lim: dict) -> int:
+        ra = lim.get("reset_at")
+        if not ra:
+            return 0
+        return max(0, int((ra - datetime.now(tz=timezone.utc)).total_seconds() / 60))
+
+
+class CursorApiPoller:
+    def __init__(self, loader: CursorLoader):
+        self.loader = loader
+        self.limits: list[dict] = []
+        self.error: "str | None" = None
+        self.fetched_at: "datetime | None" = None
+        self.plan_name: "str | None" = None
+        self._lock = threading.Lock()
+        self._cbs: list = []
+
+    def on_update(self, fn):
+        self._cbs.append(fn)
+
+    def _fire(self):
+        for fn in self._cbs:
+            try:
+                fn()
+            except Exception:
+                pass
+
+    def fetch_now(self):
+        limits, plan_name, err = fetch_cursor_limits()
+        with self._lock:
+            if limits:
+                self.limits = limits
+                self.error = None
+                self.plan_name = plan_name
+                self.fetched_at = datetime.now()
+                with self.loader._lock:
+                    self.loader.limits = limits
+                    self.loader.plan_name = plan_name
+            else:
+                self.error = err
+                if not self.limits:
+                    self.fetched_at = datetime.now()
+        self._fire()
+
+    def start(self):
+        def _loop():
+            while True:
+                self.fetch_now()
+                delay = POLL_API_SEC
+                now = datetime.now(tz=timezone.utc)
+                with self._lock:
+                    lims = self.limits[:]
+                for lim in lims:
+                    ra = lim.get("reset_at")
+                    if ra:
+                        secs = (ra - now).total_seconds()
+                        if 0 < secs <= 35:
+                            delay = secs + 2
+                            break
+                time.sleep(delay)
+        threading.Thread(target=_loop, daemon=True).start()
+
+    @property
+    def top(self) -> "dict | None":
+        with self._lock:
+            return self.limits[0] if self.limits else None
+
+    def mins_to_reset(self, lim: dict) -> int:
+        ra = lim.get("reset_at")
+        if not ra:
+            return 0
+        return max(0, int((ra - datetime.now(tz=timezone.utc)).total_seconds() / 60))
+
+
+# ════════════════════════════════════════════════════════════════════════════════
 #  API Poller
 # ════════════════════════════════════════════════════════════════════════════════
 class ApiPoller:
@@ -554,11 +963,14 @@ class MonitorWindow(ctk.CTk):
     MINIMAL  = "minimal"
     EXPANDED = "expanded"
 
-    def __init__(self, loader: Loader, poller: ApiPoller, codex_loader: CodexLoader):
+    def __init__(self, loader: Loader, poller: ApiPoller, codex_loader: CodexLoader,
+                 cursor_loader: CursorLoader, cursor_poller: CursorApiPoller):
         super().__init__()
         self.loader = loader
         self.poller = poller
         self.codex_loader = codex_loader
+        self.cursor_loader = cursor_loader
+        self.cursor_poller = cursor_poller
         self._mode  = self.MINIMAL
         self._tab   = "Claude"
         self._quitting = False
@@ -575,6 +987,7 @@ class MonitorWindow(ctk.CTk):
         self.bind("<Unmap>", self._handle_unmap)
 
         self.poller.on_update(lambda: self.after(0, self._update_ui))
+        self.cursor_poller.on_update(lambda: self.after(0, self._update_ui))
         self._build()
         self.after(1000, self._keep_minimal_visible)
 
@@ -723,7 +1136,7 @@ class MonitorWindow(ctk.CTk):
 
         self._tabs = ctk.CTkSegmentedButton(
             self,
-            values=["Claude", "Codex"],
+            values=["Claude", "Codex", "Cursor"],
             command=self._set_tab,
             height=28,
             fg_color=CARD,
@@ -823,9 +1236,14 @@ class MonitorWindow(ctk.CTk):
 
     # ── MINIMAL update ─────────────────────────────────────────────────────────
     def _update_minimal(self):
-        source = self.codex_loader if self._tab == "Codex" else self.poller
-        top = self.codex_loader.limits[0] if self._tab == "Codex" and self.codex_loader.limits else None
-        if self._tab != "Codex":
+        if self._tab == "Codex":
+            source = self.codex_loader
+            top = self.codex_loader.limits[0] if self.codex_loader.limits else None
+        elif self._tab == "Cursor":
+            source = self.cursor_poller
+            top = self.cursor_poller.top
+        else:
+            source = self.poller
             top = self.poller.top
         if top is None:
             self._m_pct.configure(text="—", text_color=MUTED)
@@ -853,6 +1271,9 @@ class MonitorWindow(ctk.CTk):
     def _update_expanded(self):
         if self._tab == "Codex":
             self._update_codex_expanded()
+            return
+        if self._tab == "Cursor":
+            self._update_cursor_expanded()
             return
 
         # API limits
@@ -924,6 +1345,38 @@ class MonitorWindow(ctk.CTk):
         if hasattr(self, "_e_proj"):
             self._fill_codex_projects()
 
+    def _update_cursor_expanded(self):
+        if hasattr(self, "_e_limits"):
+            for w in self._e_limits.winfo_children():
+                w.destroy()
+
+            limits = self.cursor_poller.limits or self.cursor_loader.limits
+            err = self.cursor_poller.error or self.cursor_loader.error
+            if limits:
+                for lim in limits:
+                    self._render_bar(self._e_limits, lim, self.cursor_poller)
+                ctk.CTkFrame(self._e_limits, fg_color="transparent", height=6).pack()
+            elif err:
+                ctk.CTkLabel(self._e_limits, text=f"⚠ {err}",
+                             font=("Segoe UI", 9), text_color=ORANGE).pack(padx=12, pady=10)
+            else:
+                ctk.CTkLabel(self._e_limits, text="Aguardando Cursor…",
+                             font=("Segoe UI", 9), text_color=MUTED).pack(padx=12, pady=10)
+
+            ts = self.cursor_poller.fetched_at or self.cursor_loader.updated_at
+            if ts:
+                self._e_api_ts.configure(text=ts.strftime("Cursor %H:%M:%S"))
+
+        if hasattr(self, "_c_today"):
+            self._fill_cursor_card(self._c_today, self.cursor_loader.today)
+            self._fill_cursor_card(self._c_alltime, self.cursor_loader.alltime)
+        if self.cursor_loader.updated_at and hasattr(self, "_e_time"):
+            self._e_time.configure(
+                text=self.cursor_loader.updated_at.strftime("%H:%M:%S"))
+
+        if hasattr(self, "_e_proj"):
+            self._fill_cursor_projects()
+
     def _render_bar(self, parent, lim: dict, source=None):
         row = ctk.CTkFrame(parent, fg_color="transparent")
         row.pack(fill="x", padx=12, pady=(8, 0))
@@ -974,6 +1427,13 @@ class MonitorWindow(ctk.CTk):
         card._in.configure(text=f"↑ {fmt_tok(s.inp)}")
         card._out.configure(text=f"↓ {fmt_tok(s.out)}")
         card._cr.configure(text=f"⚡ {fmt_tok(s.reasoning)}")
+
+    def _fill_cursor_card(self, card, s: CursorStats):
+        card._tok.configure(text=fmt_tok(s.total))
+        card._cost.configure(text=fmt_cost(s.cost_cents / 100))
+        card._in.configure(text=f"↑ {fmt_tok(s.inp)}")
+        card._out.configure(text=f"↓ {fmt_tok(s.out)}")
+        card._cr.configure(text=f"ctx {fmt_tok(s.cached)}")
 
     def _fill_projects(self):
         for w in self._e_proj.winfo_children():
@@ -1033,6 +1493,34 @@ class MonitorWindow(ctk.CTk):
             ctk.CTkLabel(right, text=f"r {fmt_tok(s.reasoning)}",
                          font=("Segoe UI", 8), text_color=GREEN).pack(anchor="e")
 
+    def _fill_cursor_projects(self):
+        for w in self._e_proj.winfo_children():
+            w.destroy()
+
+        items = list(self.cursor_loader.projects.items())[:12]
+        if not items:
+            ctk.CTkLabel(self._e_proj, text="Sem dados ainda.",
+                         text_color=MUTED, font=("Segoe UI", 10)).pack(pady=16)
+            return
+
+        for name, s in items:
+            row = ctk.CTkFrame(self._e_proj, fg_color=CARD, corner_radius=0)
+            row.pack(fill="x", pady=2)
+
+            left = ctk.CTkFrame(row, fg_color="transparent")
+            left.pack(side="left", padx=10, pady=6, fill="x", expand=True)
+            ctk.CTkLabel(left, text=name[:30], font=("Segoe UI", 10, "bold"),
+                         text_color=TXT, anchor="w").pack(anchor="w")
+            ctk.CTkLabel(left, text="respostas do agente",
+                         font=("Segoe UI", 8), text_color=MUTED, anchor="w").pack(anchor="w")
+
+            right = ctk.CTkFrame(row, fg_color="transparent")
+            right.pack(side="right", padx=10)
+            ctk.CTkLabel(right, text=str(s.messages),
+                         font=("Segoe UI", 10, "bold"), text_color=BLUE).pack(anchor="e")
+            ctk.CTkLabel(right, text="msgs",
+                         font=("Segoe UI", 8), text_color=GREEN).pack(anchor="e")
+
     # ── manual refresh ─────────────────────────────────────────────────────────
     def _manual_refresh(self):
         threading.Thread(target=self._bg_refresh, daemon=True).start()
@@ -1040,7 +1528,9 @@ class MonitorWindow(ctk.CTk):
     def _bg_refresh(self):
         self.loader.reload()
         self.codex_loader.reload()
+        self.cursor_loader.reload()
         self.poller.fetch_now()
+        self.cursor_poller.fetch_now()
 
     # ── tray entry point ───────────────────────────────────────────────────────
     def show_expanded(self):
@@ -1074,8 +1564,10 @@ def _make_icon() -> Image.Image:
 def main():
     loader = Loader()
     codex_loader = CodexLoader()
+    cursor_loader = CursorLoader()
     poller = ApiPoller()
-    app    = MonitorWindow(loader, poller, codex_loader)
+    cursor_poller = CursorApiPoller(cursor_loader)
+    app = MonitorWindow(loader, poller, codex_loader, cursor_loader, cursor_poller)
 
     def open_expanded(icon, _):
         app.after(0, app.show_expanded)
@@ -1097,19 +1589,27 @@ def main():
 
     # Background: API polling
     poller.start()
+    cursor_poller.start()
 
     # Background: JSONL refresh loop
     def _jsonl_loop():
         while True:
             loader.reload()
             codex_loader.reload()
+            cursor_loader.reload()
             app.after(0, app._update_ui)
             time.sleep(POLL_JSONL_SEC)
     threading.Thread(target=_jsonl_loop, daemon=True).start()
 
     # Initial JSONL load before first render
     threading.Thread(
-        target=lambda: (loader.reload(), codex_loader.reload(), app.after(0, app._update_ui)),
+        target=lambda: (
+            loader.reload(),
+            codex_loader.reload(),
+            cursor_loader.reload(),
+            cursor_poller.fetch_now(),
+            app.after(0, app._update_ui),
+        ),
         daemon=True,
     ).start()
 

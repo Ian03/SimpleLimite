@@ -3,7 +3,7 @@
 
   # Claude Token Monitor
 
-  Monitor de tokens do **Claude Code** e **Codex** na bandeja do Windows.
+  Monitor de tokens do **Claude Code**, **Codex** e **Cursor** na bandeja do Windows.
   Lê arquivos locais — sem API, sem custo extra.
 
   ![preview](docs/preview.png)
@@ -13,7 +13,7 @@
 
 ## O que é
 
-Claude Token Monitor é um app leve que fica na bandeja do sistema e mostra em tempo real quanto você está usando do seu limite de tokens do Claude Code e do Codex — incluindo o consumo de hoje, o histórico total, o uso da janela atual e o tempo até o próximo reset.
+Claude Token Monitor é um app leve que fica na bandeja do sistema e mostra em tempo real quanto você está usando do seu limite de tokens do Claude Code, Codex e Cursor — incluindo o consumo de hoje, o histórico total, o uso da janela atual e o tempo até o próximo reset.
 
 ---
 
@@ -25,6 +25,7 @@ Claude Token Monitor é um app leve que fica na bandeja do sistema e mostra em t
 - **Total acumulado** — histórico de todas as sessões desde o início
 - **Sessão atual** — barra de progresso com % do limite e countdown do reset
 - **Aba Codex** — lê sessões locais do Codex em `~/.codex/sessions`
+- **Aba Cursor** — limites via API do Cursor (`api2.cursor.sh`) e histórico de tokens por evento de uso
 - **Por projeto** — cada repositório com input, output, cache e custo
 - **Notificações nativas** — alerta ao atingir 70% e aviso 60 min antes do reset
 - **Calibração** — sincroniza os valores com a página real do Claude Code
@@ -38,6 +39,7 @@ Claude Token Monitor é um app leve que fica na bandeja do sistema e mostra em t
 - Python 3.10 ou superior
 - Claude Code instalado com histórico em `~/.claude/`
 - Codex instalado com histórico em `~/.codex/` para a aba Codex
+- Cursor instalado e autenticado (token em `%APPDATA%\Cursor\auth.json` ou `state.vscdb`) para a aba Cursor
 
 ---
 
@@ -212,8 +214,7 @@ claude-token-monitor/
 
 ## Privacidade
 
-Este app não envia nenhum dado para a internet.
-Lê apenas os arquivos locais em `%USERPROFILE%\.claude\` e não faz nenhuma requisição de rede.
+Este app lê arquivos locais do Claude Code e Codex. Para Claude e Cursor, também consulta as APIs oficiais de uso com o token OAuth já presente na máquina — nenhuma credencial extra é necessária.
 
 ---
 
