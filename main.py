@@ -27,6 +27,7 @@ CONFIG_FILE  = Path(__file__).parent / "config.json"
 # ── Intervals ─────────────────────────────────────────────────────────────────
 POLL_API_SEC  = 60
 POLL_JSONL_SEC = 30
+AUTO_COLLAPSE_ON_FOCUS_OUT = False
 
 # ── UI sizes ──────────────────────────────────────────────────────────────────
 PILL_W, PILL_H = 310, 64
@@ -255,7 +256,7 @@ class Loader:
         self._lock = threading.Lock()
 
     def reload(self):
-        today_date = datetime.now(timezone.utc).date()
+        today_date = datetime.now().date()
         today = Stats(); alltime = Stats(); projects: dict[str, Stats] = {}
 
         if PROJECTS_DIR.exists():
@@ -289,7 +290,7 @@ class Loader:
                                     try:
                                         ts = datetime.fromisoformat(
                                             ts_raw.replace("Z", "+00:00"))
-                                        if ts.date() == today_date:
+                                        if ts.astimezone().date() == today_date:
                                             today.add(usage, model)
                                     except Exception:
                                         pass
@@ -391,6 +392,7 @@ class MonitorWindow(ctk.CTk):
         self.loader = loader
         self.poller = poller
         self._mode  = self.MINIMAL
+        self._quitting = False
         self._dx = self._dy = self._wx = self._wy = 0
 
         ctk.set_appearance_mode("dark")
@@ -400,9 +402,50 @@ class MonitorWindow(ctk.CTk):
         self.attributes("-alpha", 0.97)
         self.attributes("-toolwindow", True)
         self.configure(fg_color=BG)
+        self.protocol("WM_DELETE_WINDOW", self._handle_window_close)
+        self.bind("<Unmap>", self._handle_unmap)
 
         self.poller.on_update(lambda: self.after(0, self._update_ui))
         self._build()
+        self.after(1000, self._keep_minimal_visible)
+
+    def quit(self):
+        self._quitting = True
+        self.destroy()
+
+    def _handle_window_close(self):
+        if self._quitting:
+            self.destroy()
+            return
+        self._go_minimal()
+        self.deiconify()
+        self.attributes("-topmost", True)
+        self.lift()
+
+    def _handle_unmap(self, _event=None):
+        if self._quitting:
+            return
+        self.after(100, self._restore_if_hidden)
+
+    def _restore_if_hidden(self):
+        if self._quitting or not self.winfo_exists():
+            return
+        try:
+            if self.state() in ("withdrawn", "iconic"):
+                self._mode = self.MINIMAL
+                self._build()
+                self.deiconify()
+                self.attributes("-topmost", True)
+                self.lift()
+        except Exception:
+            pass
+
+    def _keep_minimal_visible(self):
+        if self._quitting or not self.winfo_exists():
+            return
+        if self._mode == self.MINIMAL:
+            self._restore_if_hidden()
+        self.after(2000, self._keep_minimal_visible)
 
     # ── drag ──────────────────────────────────────────────────────────────────
     def _bind_drag(self, w):
@@ -441,7 +484,8 @@ class MonitorWindow(ctk.CTk):
         else:
             self._build_expanded()
             self._place(WIN_W, WIN_H)
-            self.bind("<FocusOut>", lambda e: self.after(200, self._focus_out))
+            if AUTO_COLLAPSE_ON_FOCUS_OUT:
+                self.bind("<FocusOut>", lambda e: self.after(200, self._focus_out))
 
     def _focus_out(self):
         try:
@@ -571,12 +615,15 @@ class MonitorWindow(ctk.CTk):
     def _go_minimal(self):
         self._mode = self.MINIMAL
         self._build()
+        self.deiconify()
+        self.attributes("-topmost", True)
+        self.lift()
         self._update_ui()
 
     def _go_expanded(self):
         self._mode = self.EXPANDED
         self._build()
-        self.deiconify(); self.lift(); self.focus_force()
+        self.deiconify(); self.lift()
         self._update_ui()
 
     # ── update dispatch ────────────────────────────────────────────────────────
@@ -734,7 +781,7 @@ class MonitorWindow(ctk.CTk):
     def show_expanded(self):
         self._mode = self.EXPANDED
         self._build()
-        self.deiconify(); self.lift(); self.focus_force()
+        self.deiconify(); self.lift()
         self._update_ui()
 
 
@@ -769,7 +816,7 @@ def main():
 
     def quit_app(icon, _):
         icon.stop()
-        app.after(0, app.destroy)
+        app.after(0, app.quit)
 
     tray = pystray.Icon(
         "claude-tokens",
