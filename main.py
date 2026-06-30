@@ -31,6 +31,8 @@ CURSOR_DIR   = Path.home() / ".cursor"
 CURSOR_PROJECTS_DIR = CURSOR_DIR / "projects"
 CURSOR_AUTH_FILE = Path(os.environ.get("APPDATA", "")) / "Cursor" / "auth.json"
 CURSOR_STATE_DB  = Path(os.environ.get("APPDATA", "")) / "Cursor" / "User" / "globalStorage" / "state.vscdb"
+COPILOT_DIR  = Path.home() / ".github-copilot"
+COPILOT_SESSIONS_DIR = COPILOT_DIR / "sessions"
 
 # ── Intervals ─────────────────────────────────────────────────────────────────
 POLL_API_SEC  = 60
@@ -964,13 +966,14 @@ class MonitorWindow(ctk.CTk):
     EXPANDED = "expanded"
 
     def __init__(self, loader: Loader, poller: ApiPoller, codex_loader: CodexLoader,
-                 cursor_loader: CursorLoader, cursor_poller: CursorApiPoller):
+                 cursor_loader: CursorLoader, cursor_poller: CursorApiPoller, copilot_loader: CopilotLoader):
         super().__init__()
         self.loader = loader
         self.poller = poller
         self.codex_loader = codex_loader
         self.cursor_loader = cursor_loader
         self.cursor_poller = cursor_poller
+        self.copilot_loader = copilot_loader
         self._mode  = self.MINIMAL
         self._tab   = "Claude"
         self._quitting = False
@@ -1242,6 +1245,13 @@ class MonitorWindow(ctk.CTk):
         elif self._tab == "Cursor":
             source = self.cursor_poller
             top = self.cursor_poller.top
+        elif self._tab == "Copilot":
+            # Copilot não tem API limits, então mostra sempre como 0%
+            self._m_pct.configure(text="—", text_color=MUTED)
+            self._m_bar.set(0)
+            self._m_lbl.configure(text=f"Copilot: {self.copilot_loader.alltime.completions} completions")
+            self._m_reset.configure(text="")
+            return
         else:
             source = self.poller
             top = self.poller.top
@@ -1274,6 +1284,9 @@ class MonitorWindow(ctk.CTk):
             return
         if self._tab == "Cursor":
             self._update_cursor_expanded()
+            return
+        if self._tab == "Copilot":
+            self._update_copilot_expanded()
             return
 
         # API limits
@@ -1377,7 +1390,33 @@ class MonitorWindow(ctk.CTk):
         if hasattr(self, "_e_proj"):
             self._fill_cursor_projects()
 
-    def _render_bar(self, parent, lim: dict, source=None):
+    def _update_copilot_expanded(self):
+        if hasattr(self, "_e_limits"):
+            for w in self._e_limits.winfo_children():
+                w.destroy()
+
+            err = self.copilot_loader.error
+            if err:
+                ctk.CTkLabel(self._e_limits, text=f"⚠ {err}",
+                             font=("Segoe UI", 9), text_color=ORANGE).pack(padx=12, pady=10)
+            else:
+                ctk.CTkLabel(self._e_limits, text="GitHub Copilot (sem limite de API)",
+                             font=("Segoe UI", 9), text_color=MUTED).pack(padx=12, pady=10)
+
+            if self.copilot_loader.updated_at:
+                self._e_api_ts.configure(
+                    text=self.copilot_loader.updated_at.strftime("Copilot %H:%M:%S"))
+
+        if hasattr(self, "_c_today"):
+            self._fill_copilot_card(self._c_today, self.copilot_loader.today)
+            self._fill_copilot_card(self._c_alltime, self.copilot_loader.alltime)
+        if self.copilot_loader.updated_at and hasattr(self, "_e_time"):
+            self._e_time.configure(
+                text=self.copilot_loader.updated_at.strftime("%H:%M:%S"))
+
+        if hasattr(self, "_e_proj"):
+            self._fill_copilot_projects()
+
         row = ctk.CTkFrame(parent, fg_color="transparent")
         row.pack(fill="x", padx=12, pady=(8, 0))
 
@@ -1435,7 +1474,13 @@ class MonitorWindow(ctk.CTk):
         card._out.configure(text=f"↓ {fmt_tok(s.out)}")
         card._cr.configure(text=f"ctx {fmt_tok(s.cached)}")
 
-    def _fill_projects(self):
+    def _fill_copilot_card(self, card, s: CopilotStats):
+        card._tok.configure(text=fmt_tok(s.completions))
+        card._cost.configure(text=f"{s.sessions} sess")
+        card._in.configure(text="")
+        card._out.configure(text="")
+        card._cr.configure(text="")
+
         for w in self._e_proj.winfo_children():
             w.destroy()
 
@@ -1521,7 +1566,34 @@ class MonitorWindow(ctk.CTk):
             ctk.CTkLabel(right, text="msgs",
                          font=("Segoe UI", 8), text_color=GREEN).pack(anchor="e")
 
-    # ── manual refresh ─────────────────────────────────────────────────────────
+    def _fill_copilot_projects(self):
+        for w in self._e_proj.winfo_children():
+            w.destroy()
+
+        items = list(self.copilot_loader.projects.items())[:12]
+        if not items:
+            ctk.CTkLabel(self._e_proj, text="Sem dados ainda.",
+                         text_color=MUTED, font=("Segoe UI", 10)).pack(pady=16)
+            return
+
+        for name, s in items:
+            row = ctk.CTkFrame(self._e_proj, fg_color=CARD, corner_radius=0)
+            row.pack(fill="x", pady=2)
+
+            left = ctk.CTkFrame(row, fg_color="transparent")
+            left.pack(side="left", padx=10, pady=6, fill="x", expand=True)
+            ctk.CTkLabel(left, text=name[:30], font=("Segoe UI", 10, "bold"),
+                         text_color=TXT, anchor="w").pack(anchor="w")
+            ctk.CTkLabel(left, text=f"{s.sessions} sessões",
+                         font=("Segoe UI", 8), text_color=MUTED, anchor="w").pack(anchor="w")
+
+            right = ctk.CTkFrame(row, fg_color="transparent")
+            right.pack(side="right", padx=10)
+            ctk.CTkLabel(right, text=fmt_tok(s.completions),
+                         font=("Segoe UI", 10, "bold"), text_color=BLUE).pack(anchor="e")
+            ctk.CTkLabel(right, text="completions",
+                         font=("Segoe UI", 8), text_color=GREEN).pack(anchor="e")
+
     def _manual_refresh(self):
         threading.Thread(target=self._bg_refresh, daemon=True).start()
 
@@ -1529,6 +1601,7 @@ class MonitorWindow(ctk.CTk):
         self.loader.reload()
         self.codex_loader.reload()
         self.cursor_loader.reload()
+        self.copilot_loader.reload()
         self.poller.fetch_now()
         self.cursor_poller.fetch_now()
 
@@ -1565,9 +1638,10 @@ def main():
     loader = Loader()
     codex_loader = CodexLoader()
     cursor_loader = CursorLoader()
+    copilot_loader = CopilotLoader()
     poller = ApiPoller()
     cursor_poller = CursorApiPoller(cursor_loader)
-    app = MonitorWindow(loader, poller, codex_loader, cursor_loader, cursor_poller)
+    app = MonitorWindow(loader, poller, codex_loader, cursor_loader, cursor_poller, copilot_loader)
 
     def open_expanded(icon, _):
         app.after(0, app.show_expanded)
@@ -1597,6 +1671,7 @@ def main():
             loader.reload()
             codex_loader.reload()
             cursor_loader.reload()
+            copilot_loader.reload()
             app.after(0, app._update_ui)
             time.sleep(POLL_JSONL_SEC)
     threading.Thread(target=_jsonl_loop, daemon=True).start()
@@ -1607,6 +1682,7 @@ def main():
             loader.reload(),
             codex_loader.reload(),
             cursor_loader.reload(),
+            copilot_loader.reload(),
             cursor_poller.fetch_now(),
             app.after(0, app._update_ui),
         ),
