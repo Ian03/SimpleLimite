@@ -23,6 +23,8 @@ CLAUDE_DIR   = Path.home() / ".claude"
 PROJECTS_DIR = CLAUDE_DIR / "projects"
 CREDS_FILE   = CLAUDE_DIR / ".credentials.json"
 CONFIG_FILE  = Path(__file__).parent / "config.json"
+CODEX_DIR    = Path.home() / ".codex"
+CODEX_SESSIONS_DIR = CODEX_DIR / "sessions"
 
 # ── Intervals ─────────────────────────────────────────────────────────────────
 POLL_API_SEC  = 60
@@ -249,9 +251,35 @@ class Stats:
         return self.inp + self.out + self.cc
 
 
+class CodexStats:
+    __slots__ = ("inp", "out", "cached", "reasoning")
+
+    def __init__(self):
+        self.inp = self.out = self.cached = self.reasoning = 0
+
+    def add(self, usage: dict):
+        self.inp       += int(usage.get("input_tokens") or 0)
+        self.out       += int(usage.get("output_tokens") or 0)
+        self.cached    += int(usage.get("cached_input_tokens") or 0)
+        self.reasoning += int(usage.get("reasoning_output_tokens") or 0)
+
+    @property
+    def total(self):
+        return self.inp + self.out
+
+
 def _readable_name(folder: str) -> str:
     parts = folder.replace("--", "\x00").split("\x00")
     return parts[-1].replace("-", " ").strip() if parts else folder
+
+
+def _readable_path_name(path: str) -> str:
+    if not path:
+        return "Sem projeto"
+    try:
+        return Path(path).name or path
+    except Exception:
+        return path
 
 
 class Loader:
@@ -316,6 +344,130 @@ class Loader:
             self.alltime  = alltime
             self.projects = projects
             self.updated_at = datetime.now()
+
+
+class CodexLoader:
+    def __init__(self):
+        self.today    = CodexStats()
+        self.alltime  = CodexStats()
+        self.projects: dict[str, CodexStats] = {}
+        self.limits: list[dict] = []
+        self.error: "str | None" = None
+        self.updated_at: "datetime | None" = None
+        self._lock = threading.Lock()
+
+    def reload(self):
+        today_date = datetime.now().date()
+        today = CodexStats(); alltime = CodexStats(); projects: dict[str, CodexStats] = {}
+        latest_limit = None
+        latest_limit_ts = None
+
+        if not CODEX_SESSIONS_DIR.exists():
+            with self._lock:
+                self.error = "Codex não encontrado (~/.codex/sessions)"
+                self.updated_at = datetime.now()
+            return
+
+        try:
+            files = list(CODEX_SESSIONS_DIR.rglob("*.jsonl"))
+        except Exception as e:
+            with self._lock:
+                self.error = f"Erro ao ler Codex: {e}"
+                self.updated_at = datetime.now()
+            return
+
+        for jf in files:
+            cwd = ""
+            last_usage = None
+            last_usage_ts = None
+
+            try:
+                with open(jf, encoding="utf-8", errors="ignore") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            d = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+
+                        payload = d.get("payload") or {}
+                        ts = _parse_dt(d.get("timestamp"))
+                        if d.get("type") in ("session_meta", "turn_context"):
+                            cwd = payload.get("cwd") or cwd
+
+                        if d.get("type") != "event_msg" or payload.get("type") != "token_count":
+                            continue
+
+                        info = payload.get("info") or {}
+                        usage = info.get("total_token_usage")
+                        if usage:
+                            last_usage = usage
+                            last_usage_ts = ts
+
+                        lim = self._parse_limit(payload.get("rate_limits"), ts)
+                        if lim and (latest_limit_ts is None or (ts and ts > latest_limit_ts)):
+                            latest_limit = lim
+                            latest_limit_ts = ts
+            except Exception:
+                continue
+
+            if not last_usage:
+                continue
+
+            s = CodexStats()
+            s.add(last_usage)
+            alltime.add(last_usage)
+            if last_usage_ts and last_usage_ts.astimezone().date() == today_date:
+                today.add(last_usage)
+
+            name = _readable_path_name(cwd)
+            if name not in projects:
+                projects[name] = CodexStats()
+            projects[name].add(last_usage)
+
+        projects = dict(sorted(projects.items(), key=lambda x: x[1].total, reverse=True))
+        with self._lock:
+            if alltime.total == 0 and self.alltime.total > 0:
+                self.updated_at = datetime.now()
+                return
+            self.today    = today
+            self.alltime  = alltime
+            self.projects = projects
+            self.limits   = [latest_limit] if latest_limit else self.limits
+            self.error    = None if (alltime.total > 0 or latest_limit) else "Sem dados do Codex"
+            self.updated_at = datetime.now()
+
+    def _parse_limit(self, rate_limits, ts):
+        if not isinstance(rate_limits, dict):
+            return None
+        primary = rate_limits.get("primary") or {}
+        pct = primary.get("used_percent")
+        if pct is None:
+            return None
+        reset_at = None
+        if primary.get("resets_at"):
+            try:
+                reset_at = datetime.fromtimestamp(float(primary["resets_at"]), tz=timezone.utc)
+            except Exception:
+                reset_at = None
+        return {
+            "label": "Codex",
+            "pct": min(max(float(pct), 0), 100),
+            "reset_at": reset_at,
+            "kind": "timed",
+            "used_usd": 0,
+            "cap_usd": 0,
+            "is_session": True,
+            "fetched_at": ts,
+        }
+
+    def mins_to_reset(self, lim: dict) -> int:
+        ra = lim.get("reset_at")
+        if not ra:
+            return 0
+        return max(0, int((ra - datetime.now(tz=timezone.utc)).total_seconds() / 60))
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -402,11 +554,13 @@ class MonitorWindow(ctk.CTk):
     MINIMAL  = "minimal"
     EXPANDED = "expanded"
 
-    def __init__(self, loader: Loader, poller: ApiPoller):
+    def __init__(self, loader: Loader, poller: ApiPoller, codex_loader: CodexLoader):
         super().__init__()
         self.loader = loader
         self.poller = poller
+        self.codex_loader = codex_loader
         self._mode  = self.MINIMAL
+        self._tab   = "Claude"
         self._quitting = False
         self._dx = self._dy = self._wx = self._wy = 0
 
@@ -556,7 +710,7 @@ class MonitorWindow(ctk.CTk):
 
         ctk.CTkFrame(hdr, width=8, height=8, fg_color=BLUE,
                      corner_radius=4).place(x=12, rely=0.5, anchor="w")
-        t = ctk.CTkLabel(hdr, text="Claude Tokens",
+        t = ctk.CTkLabel(hdr, text="Token Monitor",
                          font=("Segoe UI", 12, "bold"), text_color=TXT)
         t.place(x=26, rely=0.5, anchor="w")
         self._bind_drag(t)
@@ -566,6 +720,21 @@ class MonitorWindow(ctk.CTk):
         self._e_time.pack(side="right", padx=(0, 4))
         _btn(hdr, "⊟", self._go_minimal,       MUTED).pack(side="right", padx=(0, 2))
         _btn(hdr, "↻", self._manual_refresh,   BLUE).pack(side="right")
+
+        self._tabs = ctk.CTkSegmentedButton(
+            self,
+            values=["Claude", "Codex"],
+            command=self._set_tab,
+            height=28,
+            fg_color=CARD,
+            selected_color=BLUE,
+            selected_hover_color=BLUE,
+            unselected_color=CARD,
+            unselected_hover_color=BORDER,
+            text_color=TXT,
+        )
+        self._tabs.pack(fill="x", padx=8, pady=(0, 4))
+        self._tabs.set(self._tab)
 
         # ── API limits block ──────────────────────────────────────────────────
         sec_hdr = ctk.CTkFrame(self, fg_color="transparent")
@@ -626,6 +795,10 @@ class MonitorWindow(ctk.CTk):
         card._cr.pack(side="left")
         return card
 
+    def _set_tab(self, tab):
+        self._tab = tab
+        self._update_ui()
+
     # ── mode switches ──────────────────────────────────────────────────────────
     def _go_minimal(self):
         self._mode = self.MINIMAL
@@ -650,11 +823,14 @@ class MonitorWindow(ctk.CTk):
 
     # ── MINIMAL update ─────────────────────────────────────────────────────────
     def _update_minimal(self):
-        top = self.poller.top
+        source = self.codex_loader if self._tab == "Codex" else self.poller
+        top = self.codex_loader.limits[0] if self._tab == "Codex" and self.codex_loader.limits else None
+        if self._tab != "Codex":
+            top = self.poller.top
         if top is None:
             self._m_pct.configure(text="—", text_color=MUTED)
             self._m_bar.set(0)
-            self._m_lbl.configure(text="Sem dados")
+            self._m_lbl.configure(text=f"{self._tab}: sem dados")
             self._m_reset.configure(text="")
             return
 
@@ -666,7 +842,7 @@ class MonitorWindow(ctk.CTk):
         self._m_bar.configure(progress_color=color)
         self._m_bar.set(pct / 100)
 
-        mins = self.poller.mins_to_reset(top)
+        mins = source.mins_to_reset(top)
         if mins > 0:
             rc = GREEN if mins > 60 else ORANGE
             self._m_reset.configure(text=f"reset {fmt_dur(mins)}", text_color=rc)
@@ -675,6 +851,10 @@ class MonitorWindow(ctk.CTk):
 
     # ── EXPANDED update ────────────────────────────────────────────────────────
     def _update_expanded(self):
+        if self._tab == "Codex":
+            self._update_codex_expanded()
+            return
+
         # API limits
         if hasattr(self, "_e_limits"):
             for w in self._e_limits.winfo_children():
@@ -712,13 +892,46 @@ class MonitorWindow(ctk.CTk):
         if hasattr(self, "_e_proj"):
             self._fill_projects()
 
-    def _render_bar(self, parent, lim: dict):
+    def _update_codex_expanded(self):
+        if hasattr(self, "_e_limits"):
+            for w in self._e_limits.winfo_children():
+                w.destroy()
+
+            limits = self.codex_loader.limits
+            err = self.codex_loader.error
+            if limits:
+                for lim in limits:
+                    self._render_bar(self._e_limits, lim, self.codex_loader)
+                ctk.CTkFrame(self._e_limits, fg_color="transparent", height=6).pack()
+            elif err:
+                ctk.CTkLabel(self._e_limits, text=f"⚠ {err}",
+                             font=("Segoe UI", 9), text_color=ORANGE).pack(padx=12, pady=10)
+            else:
+                ctk.CTkLabel(self._e_limits, text="Aguardando Codex…",
+                             font=("Segoe UI", 9), text_color=MUTED).pack(padx=12, pady=10)
+
+            if self.codex_loader.updated_at:
+                self._e_api_ts.configure(
+                    text=self.codex_loader.updated_at.strftime("Codex %H:%M:%S"))
+
+        if hasattr(self, "_c_today"):
+            self._fill_codex_card(self._c_today, self.codex_loader.today)
+            self._fill_codex_card(self._c_alltime, self.codex_loader.alltime)
+        if self.codex_loader.updated_at and hasattr(self, "_e_time"):
+            self._e_time.configure(
+                text=self.codex_loader.updated_at.strftime("%H:%M:%S"))
+
+        if hasattr(self, "_e_proj"):
+            self._fill_codex_projects()
+
+    def _render_bar(self, parent, lim: dict, source=None):
         row = ctk.CTkFrame(parent, fg_color="transparent")
         row.pack(fill="x", padx=12, pady=(8, 0))
 
         pct   = lim["pct"]
         color = bar_color(pct)
-        mins  = self.poller.mins_to_reset(lim)
+        source = source or self.poller
+        mins  = source.mins_to_reset(lim)
 
         # label row
         top = ctk.CTkFrame(row, fg_color="transparent")
@@ -755,6 +968,13 @@ class MonitorWindow(ctk.CTk):
         card._out.configure(text=f"↓ {fmt_tok(s.out)}")
         card._cr.configure(text=f"⚡ {fmt_tok(s.cr)}")
 
+    def _fill_codex_card(self, card, s: CodexStats):
+        card._tok.configure(text=fmt_tok(s.total))
+        card._cost.configure(text=f"ctx {fmt_tok(s.cached)}")
+        card._in.configure(text=f"↑ {fmt_tok(s.inp)}")
+        card._out.configure(text=f"↓ {fmt_tok(s.out)}")
+        card._cr.configure(text=f"⚡ {fmt_tok(s.reasoning)}")
+
     def _fill_projects(self):
         for w in self._e_proj.winfo_children():
             w.destroy()
@@ -784,12 +1004,42 @@ class MonitorWindow(ctk.CTk):
             ctk.CTkLabel(right, text=fmt_cost(s.cost),
                          font=("Segoe UI", 8), text_color=GREEN).pack(anchor="e")
 
+    def _fill_codex_projects(self):
+        for w in self._e_proj.winfo_children():
+            w.destroy()
+
+        items = list(self.codex_loader.projects.items())[:12]
+        if not items:
+            ctk.CTkLabel(self._e_proj, text="Sem dados ainda.",
+                         text_color=MUTED, font=("Segoe UI", 10)).pack(pady=16)
+            return
+
+        for name, s in items:
+            row = ctk.CTkFrame(self._e_proj, fg_color=CARD, corner_radius=0)
+            row.pack(fill="x", pady=2)
+
+            left = ctk.CTkFrame(row, fg_color="transparent")
+            left.pack(side="left", padx=10, pady=6, fill="x", expand=True)
+            ctk.CTkLabel(left, text=name[:30], font=("Segoe UI", 10, "bold"),
+                         text_color=TXT, anchor="w").pack(anchor="w")
+            ctk.CTkLabel(left,
+                         text=f"↑{fmt_tok(s.inp)}  ↓{fmt_tok(s.out)}  ctx {fmt_tok(s.cached)}",
+                         font=("Segoe UI", 8), text_color=MUTED, anchor="w").pack(anchor="w")
+
+            right = ctk.CTkFrame(row, fg_color="transparent")
+            right.pack(side="right", padx=10)
+            ctk.CTkLabel(right, text=fmt_tok(s.total),
+                         font=("Segoe UI", 10, "bold"), text_color=BLUE).pack(anchor="e")
+            ctk.CTkLabel(right, text=f"r {fmt_tok(s.reasoning)}",
+                         font=("Segoe UI", 8), text_color=GREEN).pack(anchor="e")
+
     # ── manual refresh ─────────────────────────────────────────────────────────
     def _manual_refresh(self):
         threading.Thread(target=self._bg_refresh, daemon=True).start()
 
     def _bg_refresh(self):
         self.loader.reload()
+        self.codex_loader.reload()
         self.poller.fetch_now()
 
     # ── tray entry point ───────────────────────────────────────────────────────
@@ -823,8 +1073,9 @@ def _make_icon() -> Image.Image:
 # ════════════════════════════════════════════════════════════════════════════════
 def main():
     loader = Loader()
+    codex_loader = CodexLoader()
     poller = ApiPoller()
-    app    = MonitorWindow(loader, poller)
+    app    = MonitorWindow(loader, poller, codex_loader)
 
     def open_expanded(icon, _):
         app.after(0, app.show_expanded)
@@ -851,13 +1102,14 @@ def main():
     def _jsonl_loop():
         while True:
             loader.reload()
+            codex_loader.reload()
             app.after(0, app._update_ui)
             time.sleep(POLL_JSONL_SEC)
     threading.Thread(target=_jsonl_loop, daemon=True).start()
 
     # Initial JSONL load before first render
     threading.Thread(
-        target=lambda: (loader.reload(), app.after(0, app._update_ui)),
+        target=lambda: (loader.reload(), codex_loader.reload(), app.after(0, app._update_ui)),
         daemon=True,
     ).start()
 
