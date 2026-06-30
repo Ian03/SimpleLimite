@@ -814,6 +814,126 @@ class CursorLoader:
         return max(0, int((ra - datetime.now(tz=timezone.utc)).total_seconds() / 60))
 
 
+# ════════════════════════════════════════════════════════════════════════════════
+#  GitHub Copilot stats + loader
+# ════════════════════════════════════════════════════════════════════════════════
+class CopilotStats:
+    __slots__ = ("completions", "sessions", "cost")
+
+    def __init__(self):
+       self.completions = 0
+       self.sessions = 0
+       self.cost = 0.0
+
+    @property
+    def total(self):
+       return self.completions + self.sessions
+
+
+class CopilotLoader:
+    def __init__(self):
+       self.today    = CopilotStats()
+       self.alltime  = CopilotStats()
+       self.projects: dict[str, CopilotStats] = {}
+       self.limits: list[dict] = []
+       self.error: "str | None" = None
+       self.updated_at: "datetime | None" = None
+       self._lock = threading.Lock()
+
+    def reload(self):
+       today_date = datetime.now().date()
+       today = CopilotStats(); alltime = CopilotStats(); projects: dict[str, CopilotStats] = {}
+
+       if not COPILOT_SESSIONS_DIR.exists():
+           with self._lock:
+               self.error = "GitHub Copilot não encontrado (~/.github-copilot/sessions)"
+               self.updated_at = datetime.now()
+           return
+
+       try:
+           files = list(COPILOT_SESSIONS_DIR.rglob("*.json"))
+       except Exception as e:
+           with self._lock:
+               self.error = f"Erro ao ler GitHub Copilot: {e}"
+               self.updated_at = datetime.now()
+           return
+
+       for jf in files:
+           cwd = ""
+           try:
+               with open(jf, encoding="utf-8", errors="ignore") as f:
+                   data = json.load(f)
+                    
+                   if not isinstance(data, dict):
+                       continue
+                    
+                   # Extract project path from session metadata
+                   metadata = data.get("metadata", {})
+                   cwd = metadata.get("workspacePath") or metadata.get("projectPath") or ""
+                    
+                   # Get completions data
+                   telemetry = data.get("telemetry", {})
+                   completion_data = telemetry.get("completions", {})
+                    
+                   if not completion_data:
+                       continue
+                    
+                   s = CopilotStats()
+                    
+                   # Parse completion counts
+                   total_completions = int(completion_data.get("totalCompletions") or 0)
+                   accepted_completions = int(completion_data.get("acceptedCompletions") or 0)
+                   rejected_completions = int(completion_data.get("rejectedCompletions") or 0)
+                    
+                   s.completions = total_completions
+                   s.sessions = 1
+                    
+                   alltime.completions += s.completions
+                   alltime.sessions += 1
+                    
+                   # Check if session is from today
+                   ts_raw = metadata.get("timestamp") or metadata.get("createdAt")
+                   if ts_raw:
+                       try:
+                           ts = datetime.fromisoformat(
+                               str(ts_raw).replace("Z", "+00:00"))
+                           if ts.astimezone().date() == today_date:
+                               today.completions += s.completions
+                               today.sessions += 1
+                       except Exception:
+                           pass
+                    
+                   # Add to project
+                   name = _readable_path_name(cwd) if cwd else "Sem projeto"
+                   if name not in projects:
+                       projects[name] = CopilotStats()
+                   projects[name].completions += s.completions
+                   projects[name].sessions += 1
+                    
+           except Exception:
+               continue
+
+       projects = dict(sorted(projects.items(),
+                              key=lambda x: x[1].completions, reverse=True))
+        
+       with self._lock:
+           if alltime.total == 0 and self.alltime.total > 0:
+               self.updated_at = datetime.now()
+               return
+            
+           self.today    = today
+           self.alltime  = alltime
+           self.projects = projects
+           self.error    = None if alltime.total > 0 else "Sem dados do GitHub Copilot"
+           self.updated_at = datetime.now()
+
+    def mins_to_reset(self, lim: dict) -> int:
+       ra = lim.get("reset_at")
+       if not ra:
+           return 0
+       return max(0, int((ra - datetime.now(tz=timezone.utc)).total_seconds() / 60))
+
+
 class CursorApiPoller:
     def __init__(self, loader: CursorLoader):
         self.loader = loader
