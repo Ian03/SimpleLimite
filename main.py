@@ -127,24 +127,31 @@ def _parse_dt(v) -> "datetime | None":
         return None
 
 def _read_token() -> "str | None":
-    try:
-        data = json.loads(CREDS_FILE.read_text(encoding="utf-8"))
-        # Actual structure: {"claudeAiOauth": {"accessToken": "sk-ant-oat01-..."}}
-        if oauth := data.get("claudeAiOauth"):
-            if tok := oauth.get("accessToken"):
-                return tok
-        # Legacy flat keys
-        for key in ("claudeAiOauthAccessToken", "access_token", "token", "oauthToken"):
-            if tok := data.get(key):
-                return tok
-        # Last resort: first long string in any nested dict
-        for v in data.values():
-            if isinstance(v, dict):
-                for sv in v.values():
-                    if isinstance(sv, str) and len(sv) > 20:
-                        return sv
-    except Exception:
-        pass
+    for attempt in range(3):
+        try:
+            data = json.loads(CREDS_FILE.read_text(encoding="utf-8"))
+            # Actual structure: {"claudeAiOauth": {"accessToken": "sk-ant-oat01-..."}}
+            if oauth := data.get("claudeAiOauth"):
+                if tok := oauth.get("accessToken"):
+                    return tok
+            # Legacy flat keys
+            for key in ("claudeAiOauthAccessToken", "access_token", "token", "oauthToken"):
+                if tok := data.get(key):
+                    return tok
+            # Last resort: first long string in any nested dict
+            for v in data.values():
+                if isinstance(v, dict):
+                    for sv in v.values():
+                        if isinstance(sv, str) and len(sv) > 20:
+                            return sv
+            break
+        except (OSError, json.JSONDecodeError):
+            if attempt < 2:
+                time.sleep(0.2)
+                continue
+            break
+        except Exception:
+            break
     return None
 
 def _normalize(data: dict) -> list[dict]:
@@ -302,6 +309,9 @@ class Loader:
         projects = dict(sorted(projects.items(),
                                key=lambda x: x[1].total, reverse=True))
         with self._lock:
+            if alltime.total == 0 and self.alltime.total > 0:
+                self.updated_at = datetime.now()
+                return
             self.today    = today
             self.alltime  = alltime
             self.projects = projects
@@ -332,9 +342,14 @@ class ApiPoller:
     def fetch_now(self):
         limits, err = fetch_api()
         with self._lock:
-            self.limits     = limits
-            self.error      = err
-            self.fetched_at = datetime.now()
+            if limits:
+                self.limits     = limits
+                self.error      = None
+                self.fetched_at = datetime.now()
+            else:
+                self.error = err
+                if not self.limits:
+                    self.fetched_at = datetime.now()
         self._fire()
 
     def start(self):
