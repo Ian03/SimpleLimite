@@ -846,6 +846,9 @@ class CopilotLoader:
 
        if not COPILOT_SESSIONS_DIR.exists():
            with self._lock:
+               self.today = today
+               self.alltime = alltime
+               self.projects = projects
                self.error = "GitHub Copilot não encontrado (~/.github-copilot/sessions)"
                self.updated_at = datetime.now()
            return
@@ -854,6 +857,9 @@ class CopilotLoader:
            files = list(COPILOT_SESSIONS_DIR.rglob("*.json"))
        except Exception as e:
            with self._lock:
+               self.today = today
+               self.alltime = alltime
+               self.projects = projects
                self.error = f"Erro ao ler GitHub Copilot: {e}"
                self.updated_at = datetime.now()
            return
@@ -1259,7 +1265,7 @@ class MonitorWindow(ctk.CTk):
 
         self._tabs = ctk.CTkSegmentedButton(
             self,
-            values=["Claude", "Codex", "Cursor"],
+            values=["Claude", "Codex", "Cursor", "Copilot"],
             command=self._set_tab,
             height=28,
             fg_color=CARD,
