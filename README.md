@@ -26,7 +26,7 @@ Claude Token Monitor é um app leve que fica na bandeja do sistema e mostra em t
 - **Sessão atual** — barra de progresso com % do limite e countdown do reset
 - **Aba Codex** — lê sessões locais do Codex em `~/.codex/sessions`
 - **Aba Cursor** — limites via API do Cursor (`api2.cursor.sh`) e histórico de tokens por evento de uso
-- **Aba GitHub Copilot** — lê sessões locais em `~/.github-copilot/sessions` (sem limite de API)
+- **Aba GitHub Copilot** — lê sessões locais do Copilot CLI (`~/.copilot/session-store.db`) e, como alternativa, o histórico do Copilot Chat da extensão do VS Code (sem limite de API)
 - **Por projeto** — cada repositório com input, output, cache e custo
 - **Notificações nativas** — alerta ao atingir 70% e aviso 60 min antes do reset
 - **Calibração** — sincroniza os valores com a página real do Claude Code
@@ -41,7 +41,7 @@ Claude Token Monitor é um app leve que fica na bandeja do sistema e mostra em t
 - Claude Code instalado com histórico em `~/.claude/`
 - Codex instalado com histórico em `~/.codex/` para a aba Codex
 - Cursor instalado e autenticado (token em `%APPDATA%\Cursor\auth.json` ou `state.vscdb`) para a aba Cursor
-- GitHub Copilot instalado com histórico em `~/.github-copilot/` para a aba Copilot
+- GitHub Copilot CLI instalado com histórico em `~/.copilot/session-store.db` **ou** a extensão GitHub Copilot Chat do VS Code (`%APPDATA%\Code\User\workspaceStorage\*\chatSessions`) para a aba Copilot
 
 ---
 
@@ -216,7 +216,7 @@ claude-token-monitor/
 
 ## Privacidade
 
-Este app lê arquivos locais do Claude Code, Codex e GitHub Copilot. Para Claude e Cursor, também consulta as APIs oficiais de uso com o token OAuth já presente na máquina — nenhuma credencial extra é necessária.
+Este app lê arquivos locais do Claude Code, Codex e GitHub Copilot (CLI ou extensão do VS Code). Para Claude e Cursor, também consulta as APIs oficiais de uso com o token OAuth já presente na máquina — nenhuma credencial extra é necessária.
 
 ---
 
