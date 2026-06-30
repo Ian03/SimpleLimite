@@ -1543,6 +1543,7 @@ class MonitorWindow(ctk.CTk):
         if hasattr(self, "_e_proj"):
             self._fill_copilot_projects()
 
+    def _render_bar(self, parent, lim: dict, source=None):
         row = ctk.CTkFrame(parent, fg_color="transparent")
         row.pack(fill="x", padx=12, pady=(8, 0))
 
