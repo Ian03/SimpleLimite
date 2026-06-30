@@ -31,17 +31,6 @@ CURSOR_DIR   = Path.home() / ".cursor"
 CURSOR_PROJECTS_DIR = CURSOR_DIR / "projects"
 CURSOR_AUTH_FILE = Path(os.environ.get("APPDATA", "")) / "Cursor" / "auth.json"
 CURSOR_STATE_DB  = Path(os.environ.get("APPDATA", "")) / "Cursor" / "User" / "globalStorage" / "state.vscdb"
-COPILOT_DIR  = Path.home() / ".copilot"
-COPILOT_DB = COPILOT_DIR / "session-store.db"
-COPILOT_LEGACY_SESSIONS_DIR = Path.home() / ".github-copilot" / "sessions"
-_APPDATA = Path(os.environ.get("APPDATA", ""))
-# VS Code (+ Insiders) stores GitHub Copilot Chat history per-workspace as
-# append-only "*.jsonl" patch logs under workspaceStorage/<hash>/chatSessions
-# and, for windows opened without a folder, under globalStorage/emptyWindowChatSessions.
-VSCODE_USER_DIRS = [
-    _APPDATA / "Code" / "User",
-    _APPDATA / "Code - Insiders" / "User",
-]
 
 # ── Intervals ─────────────────────────────────────────────────────────────────
 POLL_API_SEC  = 60
@@ -98,15 +87,6 @@ def bar_color(pct: float) -> str:
     if pct >= 90:             return RED
     if pct >= ALERT_PCT*100:  return ORANGE
     return BLUE
-
-def _shorten_home_path(path: str) -> str:
-    """Replace the user's home directory prefix with '~' so long, combined
-    source paths fit better in the compact UI."""
-    if not path:
-        return path
-    home = str(Path.home())
-    return path.replace(home, "~")
-
 
 # ════════════════════════════════════════════════════════════════════════════════
 #  API layer
@@ -305,97 +285,6 @@ def _readable_path_name(path: str) -> str:
         return Path(path).name or path
     except Exception:
         return path
-
-
-# ════════════════════════════════════════════════════════════════════════════════
-#  VS Code "GitHub Copilot Chat" session parsing
-#
-#  VS Code persists each chat session as an append-only log of patch records
-#  (one JSON object per line):
-#    {"kind": 0, "v": <full document>}                    -- initial snapshot
-#    {"kind": 1, "k": [<path>, ...], "v": <value>}         -- set value at path
-#    {"kind": 2, "k": [<path>, ...], "v": [<items>, ...]}  -- append items to
-#                                                             the array at path
-#  Replaying all records reconstructs the final session document, which
-#  contains a "requests" array — one entry per user turn.
-# ════════════════════════════════════════════════════════════════════════════════
-def _vscode_navigate(doc, path):
-    cur = doc
-    for key in path:
-        if isinstance(cur, list):
-            while len(cur) <= key:
-                cur.append({})
-            cur = cur[key]
-        elif isinstance(cur, dict):
-            if key not in cur or cur[key] is None:
-                cur[key] = {}
-            cur = cur[key]
-        else:
-            return None
-    return cur
-
-
-def _vscode_apply_set(doc, k, v):
-    if not k:
-        return doc
-    parent = _vscode_navigate(doc, k[:-1])
-    if parent is None:
-        return doc
-    last = k[-1]
-    if isinstance(parent, list):
-        while len(parent) <= last:
-            parent.append(None)
-        parent[last] = v
-    elif isinstance(parent, dict):
-        parent[last] = v
-    return doc
-
-
-def _vscode_apply_append(doc, k, v):
-    target = _vscode_navigate(doc, k)
-    if isinstance(target, list) and isinstance(v, list):
-        target.extend(v)
-    return doc
-
-
-def _vscode_merge_chat_session(jf: Path) -> "dict | None":
-    doc = None
-    with open(jf, encoding="utf-8", errors="ignore") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                d = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            kind = d.get("kind")
-            if kind == 0:
-                doc = d.get("v")
-            elif doc is None:
-                continue
-            elif kind == 1:
-                _vscode_apply_set(doc, d.get("k"), d.get("v"))
-            elif kind == 2:
-                _vscode_apply_append(doc, d.get("k"), d.get("v"))
-    return doc
-
-
-def _vscode_project_name_from_uri(uri: str) -> str:
-    if not uri:
-        return "Sem projeto"
-    raw = uri
-    for prefix in ("file:///", "file://", "vscode-remote://"):
-        if raw.startswith(prefix):
-            raw = raw[len(prefix):]
-            break
-    try:
-        import urllib.parse
-        decoded = urllib.parse.unquote(raw)
-    except Exception:
-        decoded = raw
-    decoded = decoded.replace("/", "\\")
-    return _readable_path_name(decoded)
 
 
 class Loader:
@@ -922,338 +811,6 @@ class CursorLoader:
         return max(0, int((ra - datetime.now(tz=timezone.utc)).total_seconds() / 60))
 
 
-# ════════════════════════════════════════════════════════════════════════════════
-#  GitHub Copilot stats + loader
-# ════════════════════════════════════════════════════════════════════════════════
-class CopilotStats:
-    __slots__ = ("completions", "sessions", "cost")
-
-    def __init__(self):
-        self.completions = 0  # "turns" (interações)
-        self.sessions = 0
-        self.cost = 0.0
-
-    @property
-    def total(self):
-        return self.completions + self.sessions
-
-
-class CopilotLoader:
-    def __init__(self):
-        self.today    = CopilotStats()
-        self.alltime  = CopilotStats()
-        self.projects: dict[str, CopilotStats] = {}
-        self.limits: list[dict] = []
-        self.error: "str | None" = None
-        self.updated_at: "datetime | None" = None
-        self.source_label = "Copilot CLI"
-        self.source_path = str(COPILOT_DB)
-        self._lock = threading.Lock()
-
-    def reload(self):
-        today_date = datetime.now().date()
-        today = CopilotStats()
-        alltime = CopilotStats()
-        projects: dict[str, CopilotStats] = {}
-
-        sources_used: list[str] = []
-        source_paths: list[str] = []
-        errors: list[str] = []
-
-        # 1) Native Copilot CLI session store (preferred — has real turn data)
-        if COPILOT_DB.exists():
-            try:
-                found = self._reload_from_cli_db(today, alltime, projects, today_date)
-                source_paths.append(str(COPILOT_DB))
-                if found:
-                    sources_used.append("Copilot CLI")
-            except Exception as e:
-                errors.append(f"Copilot CLI ({e})")
-
-        # 2) Legacy CLI session export (older installs)
-        if COPILOT_LEGACY_SESSIONS_DIR.exists():
-            try:
-                found = self._reload_from_legacy_jsonl(today, alltime, projects, today_date)
-                source_paths.append(str(COPILOT_LEGACY_SESSIONS_DIR))
-                if found:
-                    sources_used.append("Copilot CLI (legado)")
-            except Exception as e:
-                errors.append(f"Copilot CLI legado ({e})")
-
-        # 3) VS Code "GitHub Copilot Chat" extension local history (fallback —
-        #    works even when the standalone Copilot CLI was never used)
-        try:
-            found, checked_paths = self._reload_from_vscode_chat(today, alltime, projects, today_date)
-            source_paths.extend(checked_paths)
-            if found:
-                sources_used.append("Copilot Chat (VS Code)")
-        except Exception as e:
-            errors.append(f"Copilot Chat VS Code ({e})")
-
-        if sources_used:
-            error = None
-        elif errors:
-            error = "Erro ao ler GitHub Copilot: " + "; ".join(errors)
-        else:
-            error = "GitHub Copilot não encontrado (CLI, legado ou VS Code)"
-
-        source_label = " + ".join(sources_used) if sources_used else "Copilot"
-
-        self._finish_reload(today, alltime, projects, error, source_label, source_paths)
-
-    def _reload_from_cli_db(self, today, alltime, projects, today_date) -> bool:
-        conn = sqlite3.connect(str(COPILOT_DB))
-        conn.row_factory = sqlite3.Row
-        found = False
-        try:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT id, cwd, repository, created_at
-                FROM sessions
-                ORDER BY created_at DESC
-            """)
-            sessions = cursor.fetchall()
-
-            cursor.execute("""
-                SELECT session_id, COUNT(*) AS turn_count
-                FROM turns
-                GROUP BY session_id
-            """)
-            turn_counts = {
-                row["session_id"]: int(row["turn_count"] or 0)
-                for row in cursor.fetchall()
-            }
-
-            for session in sessions:
-                turn_count = turn_counts.get(session["id"], 0)
-                if turn_count <= 0:
-                    continue
-
-                created_at = _parse_dt(session["created_at"]) or datetime.now(timezone.utc)
-                project_name = self._copilot_project_name(session["repository"], session["cwd"])
-                self._add_session_stats(
-                    today,
-                    alltime,
-                    projects,
-                    today_date,
-                    created_at,
-                    project_name,
-                    turn_count,
-                )
-                found = True
-        finally:
-            conn.close()
-        return found
-
-    def _reload_from_legacy_jsonl(self, today, alltime, projects, today_date) -> bool:
-        found = False
-        for jf in COPILOT_LEGACY_SESSIONS_DIR.rglob("*.jsonl"):
-            project_name = "Sem projeto"
-            turn_count = 0
-            session_ts = None
-
-            try:
-                with open(jf, encoding="utf-8", errors="ignore") as f:
-                    for line in f:
-                        line = line.strip()
-                        if not line:
-                            continue
-                        try:
-                            entry = json.loads(line)
-                        except json.JSONDecodeError:
-                            continue
-
-                        project_name = self._legacy_project_name(entry, project_name, jf)
-                        session_ts = session_ts or self._entry_timestamp(entry)
-                        if self._is_assistant_turn(entry):
-                            turn_count += 1
-            except Exception:
-                continue
-
-            if turn_count <= 0:
-                continue
-
-            if session_ts is None:
-                session_ts = datetime.fromtimestamp(jf.stat().st_mtime, tz=timezone.utc)
-
-            self._add_session_stats(
-                today,
-                alltime,
-                projects,
-                today_date,
-                session_ts,
-                project_name,
-                turn_count,
-            )
-            found = True
-        return found
-
-    def _reload_from_vscode_chat(self, today, alltime, projects, today_date):
-        """Read GitHub Copilot Chat history persisted locally by VS Code
-        (and VS Code Insiders), used as a fallback when the standalone
-        Copilot CLI store has no data."""
-        found = False
-        checked_paths: list[str] = []
-
-        for user_dir in VSCODE_USER_DIRS:
-            ws_storage = user_dir / "workspaceStorage"
-            if ws_storage.exists():
-                checked_paths.append(str(ws_storage))
-                for ws_dir in ws_storage.iterdir():
-                    if not ws_dir.is_dir():
-                        continue
-                    chat_dir = ws_dir / "chatSessions"
-                    if not chat_dir.exists():
-                        continue
-                    project_name = self._vscode_project_name(ws_dir)
-                    for jf in chat_dir.glob("*.jsonl"):
-                        if self._consume_vscode_chat_file(
-                            jf, project_name, today, alltime, projects, today_date
-                        ):
-                            found = True
-
-            empty_window_dir = user_dir / "globalStorage" / "emptyWindowChatSessions"
-            if empty_window_dir.exists():
-                checked_paths.append(str(empty_window_dir))
-                for jf in empty_window_dir.glob("*.jsonl"):
-                    if self._consume_vscode_chat_file(
-                        jf, "VS Code (sem pasta)", today, alltime, projects, today_date
-                    ):
-                        found = True
-
-        return found, checked_paths
-
-    def _consume_vscode_chat_file(self, jf, project_name, today, alltime, projects, today_date) -> bool:
-        try:
-            doc = _vscode_merge_chat_session(jf)
-        except Exception:
-            return False
-
-        if not doc:
-            return False
-
-        requests = doc.get("requests") or []
-        turn_count = len(requests)
-        if turn_count <= 0:
-            return False
-
-        session_ts = None
-        for req in reversed(requests):
-            ts = req.get("timestamp")
-            if ts:
-                try:
-                    session_ts = datetime.fromtimestamp(int(ts) / 1000, tz=timezone.utc)
-                    break
-                except Exception:
-                    continue
-        if session_ts is None:
-            created_ms = doc.get("creationDate")
-            if created_ms:
-                try:
-                    session_ts = datetime.fromtimestamp(int(created_ms) / 1000, tz=timezone.utc)
-                except Exception:
-                    session_ts = None
-        if session_ts is None:
-            session_ts = datetime.fromtimestamp(jf.stat().st_mtime, tz=timezone.utc)
-
-        self._add_session_stats(
-            today, alltime, projects, today_date, session_ts, project_name, turn_count
-        )
-        return True
-
-    def _vscode_project_name(self, ws_dir: Path) -> str:
-        workspace_json = ws_dir / "workspace.json"
-        if workspace_json.exists():
-            try:
-                with open(workspace_json, encoding="utf-8", errors="ignore") as f:
-                    meta = json.load(f)
-                folder = meta.get("folder")
-                if folder:
-                    return _vscode_project_name_from_uri(str(folder))
-            except Exception:
-                pass
-        return "VS Code (sem pasta)"
-
-    def _finish_reload(self, today, alltime, projects, error, source_label, source_paths=None):
-        projects = dict(sorted(
-            projects.items(),
-            key=lambda item: (item[1].completions, item[1].sessions),
-            reverse=True,
-        ))
-        with self._lock:
-            self.today = today
-            self.alltime = alltime
-            self.projects = projects
-            self.error = error
-            self.source_label = source_label
-            self.source_path = " | ".join(source_paths) if source_paths else str(COPILOT_DB)
-            self.updated_at = datetime.now()
-
-    def _add_session_stats(self, today, alltime, projects, today_date, created_at, project_name, turn_count):
-        alltime.sessions += 1
-        alltime.completions += turn_count
-
-        if created_at.astimezone().date() == today_date:
-            today.sessions += 1
-            today.completions += turn_count
-
-        if project_name not in projects:
-            projects[project_name] = CopilotStats()
-        projects[project_name].sessions += 1
-        projects[project_name].completions += turn_count
-
-    def _copilot_project_name(self, repository, cwd):
-        return repository or (_readable_path_name(cwd) if cwd else "Sem projeto")
-
-    def _legacy_project_name(self, entry: dict, current_name: str, jf: Path) -> str:
-        repo = entry.get("repository") or entry.get("repo")
-        if repo:
-            return str(repo)
-
-        cwd = entry.get("cwd") or entry.get("workspace")
-        if cwd:
-            return _readable_path_name(str(cwd))
-
-        meta = entry.get("session") or {}
-        repo = meta.get("repository") or meta.get("repo")
-        if repo:
-            return str(repo)
-
-        cwd = meta.get("cwd") or meta.get("workspace")
-        if cwd:
-            return _readable_path_name(str(cwd))
-
-        return current_name if current_name != "Sem projeto" else _readable_path_name(jf.parent.name)
-
-    def _entry_timestamp(self, entry: dict) -> "datetime | None":
-        for key in ("timestamp", "created_at", "updated_at", "time"):
-            ts = _parse_dt(entry.get(key))
-            if ts:
-                return ts
-        meta = entry.get("session") or {}
-        for key in ("created_at", "timestamp", "updated_at"):
-            ts = _parse_dt(meta.get(key))
-            if ts:
-                return ts
-        return None
-
-    def _is_assistant_turn(self, entry: dict) -> bool:
-        if entry.get("role") == "assistant":
-            return True
-        if entry.get("type") in {"assistant", "assistant_message", "response"}:
-            return True
-        message = entry.get("message")
-        if isinstance(message, dict) and message.get("role") == "assistant":
-            return True
-        return False
-
-    def mins_to_reset(self, lim: dict) -> int:
-        ra = lim.get("reset_at")
-        if not ra:
-            return 0
-        return max(0, int((ra - datetime.now(tz=timezone.utc)).total_seconds() / 60))
-
-
 class CursorApiPoller:
     def __init__(self, loader: CursorLoader):
         self.loader = loader
@@ -1406,14 +963,13 @@ class MonitorWindow(ctk.CTk):
     EXPANDED = "expanded"
 
     def __init__(self, loader: Loader, poller: ApiPoller, codex_loader: CodexLoader,
-                 cursor_loader: CursorLoader, cursor_poller: CursorApiPoller, copilot_loader: CopilotLoader):
+                 cursor_loader: CursorLoader, cursor_poller: CursorApiPoller):
         super().__init__()
         self.loader = loader
         self.poller = poller
         self.codex_loader = codex_loader
         self.cursor_loader = cursor_loader
         self.cursor_poller = cursor_poller
-        self.copilot_loader = copilot_loader
         self._mode  = self.MINIMAL
         self._tab   = "Claude"
         self._quitting = False
@@ -1579,7 +1135,7 @@ class MonitorWindow(ctk.CTk):
 
         self._tabs = ctk.CTkSegmentedButton(
             self,
-            values=["Claude", "Codex", "Cursor", "Copilot"],
+            values=["Claude", "Codex", "Cursor"],
             command=self._set_tab,
             height=28,
             fg_color=CARD,
@@ -1685,13 +1241,6 @@ class MonitorWindow(ctk.CTk):
         elif self._tab == "Cursor":
             source = self.cursor_poller
             top = self.cursor_poller.top
-        elif self._tab == "Copilot":
-            # Copilot não tem API limits, então mostra sempre como 0%
-            self._m_pct.configure(text="—", text_color=MUTED)
-            self._m_bar.set(0)
-            self._m_lbl.configure(text=f"Copilot: {self.copilot_loader.alltime.completions} turns")
-            self._m_reset.configure(text="")
-            return
         else:
             source = self.poller
             top = self.poller.top
@@ -1724,9 +1273,6 @@ class MonitorWindow(ctk.CTk):
             return
         if self._tab == "Cursor":
             self._update_cursor_expanded()
-            return
-        if self._tab == "Copilot":
-            self._update_copilot_expanded()
             return
 
         # API limits
@@ -1830,67 +1376,6 @@ class MonitorWindow(ctk.CTk):
         if hasattr(self, "_e_proj"):
             self._fill_cursor_projects()
 
-    def _update_copilot_expanded(self):
-        if hasattr(self, "_e_limits"):
-            for w in self._e_limits.winfo_children():
-                w.destroy()
-
-            err = self.copilot_loader.error
-            if err:
-                ctk.CTkLabel(self._e_limits, text=f"⚠ {err}",
-                             font=("Segoe UI", 9), text_color=ORANGE).pack(padx=12, pady=10)
-            else:
-                wrap = ctk.CTkFrame(self._e_limits, fg_color="transparent")
-                wrap.pack(fill="x", padx=12, pady=10)
-
-                ctk.CTkLabel(
-                    wrap,
-                    text=f"{self.copilot_loader.source_label} (histórico local)",
-                    font=("Segoe UI", 10, "bold"),
-                    text_color=TXT,
-                    anchor="w",
-                ).pack(fill="x")
-                ctk.CTkLabel(
-                    wrap,
-                    text=_shorten_home_path(self.copilot_loader.source_path),
-                    font=("Consolas", 8),
-                    text_color=MUTED,
-                    anchor="w",
-                    justify="left",
-                    wraplength=350,
-                ).pack(fill="x", pady=(2, 6))
-
-                stats = ctk.CTkFrame(wrap, fg_color="transparent")
-                stats.pack(fill="x")
-                ctk.CTkLabel(
-                    stats,
-                    text=f"Hoje: {self.copilot_loader.today.sessions} sess · {self.copilot_loader.today.completions} turns",
-                    font=("Segoe UI", 9),
-                    text_color=BLUE,
-                    anchor="w",
-                ).pack(side="left")
-                ctk.CTkLabel(
-                    stats,
-                    text=f"Total: {self.copilot_loader.alltime.sessions} sess · {self.copilot_loader.alltime.completions} turns",
-                    font=("Segoe UI", 9),
-                    text_color=GREEN,
-                    anchor="e",
-                ).pack(side="right")
-
-            if self.copilot_loader.updated_at:
-                self._e_api_ts.configure(
-                    text=self.copilot_loader.updated_at.strftime("Copilot %H:%M:%S"))
-
-        if hasattr(self, "_c_today"):
-            self._fill_copilot_card(self._c_today, self.copilot_loader.today)
-            self._fill_copilot_card(self._c_alltime, self.copilot_loader.alltime)
-        if self.copilot_loader.updated_at and hasattr(self, "_e_time"):
-            self._e_time.configure(
-                text=self.copilot_loader.updated_at.strftime("%H:%M:%S"))
-
-        if hasattr(self, "_e_proj"):
-            self._fill_copilot_projects()
-
     def _render_bar(self, parent, lim: dict, source=None):
         row = ctk.CTkFrame(parent, fg_color="transparent")
         row.pack(fill="x", padx=12, pady=(8, 0))
@@ -1949,13 +1434,6 @@ class MonitorWindow(ctk.CTk):
         card._out.configure(text=f"↓ {fmt_tok(s.out)}")
         card._cr.configure(text=f"ctx {fmt_tok(s.cached)}")
 
-    def _fill_copilot_card(self, card, s: CopilotStats):
-        card._tok.configure(text=fmt_tok(s.completions))
-        card._cost.configure(text=f"{s.sessions} sess")
-        card._in.configure(text="")
-        card._out.configure(text="")
-        card._cr.configure(text="")
-
     def _fill_codex_projects(self):
         for w in self._e_proj.winfo_children():
             w.destroy()
@@ -2013,34 +1491,6 @@ class MonitorWindow(ctk.CTk):
             ctk.CTkLabel(right, text="msgs",
                          font=("Segoe UI", 8), text_color=GREEN).pack(anchor="e")
 
-    def _fill_copilot_projects(self):
-        for w in self._e_proj.winfo_children():
-            w.destroy()
-
-        items = list(self.copilot_loader.projects.items())[:12]
-        if not items:
-            ctk.CTkLabel(self._e_proj, text="Sem dados ainda.",
-                         text_color=MUTED, font=("Segoe UI", 10)).pack(pady=16)
-            return
-
-        for name, s in items:
-            row = ctk.CTkFrame(self._e_proj, fg_color=CARD, corner_radius=0)
-            row.pack(fill="x", pady=2)
-
-            left = ctk.CTkFrame(row, fg_color="transparent")
-            left.pack(side="left", padx=10, pady=6, fill="x", expand=True)
-            ctk.CTkLabel(left, text=name[:30], font=("Segoe UI", 10, "bold"),
-                         text_color=TXT, anchor="w").pack(anchor="w")
-            ctk.CTkLabel(left, text=f"{s.sessions} sess · {s.completions} turns",
-                         font=("Segoe UI", 8), text_color=MUTED, anchor="w").pack(anchor="w")
-
-            right = ctk.CTkFrame(row, fg_color="transparent")
-            right.pack(side="right", padx=10)
-            ctk.CTkLabel(right, text=fmt_tok(s.completions),
-                         font=("Segoe UI", 10, "bold"), text_color=BLUE).pack(anchor="e")
-            ctk.CTkLabel(right, text="turns",
-                         font=("Segoe UI", 8), text_color=GREEN).pack(anchor="e")
-
     def _manual_refresh(self):
         threading.Thread(target=self._bg_refresh, daemon=True).start()
 
@@ -2048,7 +1498,6 @@ class MonitorWindow(ctk.CTk):
         self.loader.reload()
         self.codex_loader.reload()
         self.cursor_loader.reload()
-        self.copilot_loader.reload()
         self.poller.fetch_now()
         self.cursor_poller.fetch_now()
 
@@ -2085,10 +1534,9 @@ def main():
     loader = Loader()
     codex_loader = CodexLoader()
     cursor_loader = CursorLoader()
-    copilot_loader = CopilotLoader()
     poller = ApiPoller()
     cursor_poller = CursorApiPoller(cursor_loader)
-    app = MonitorWindow(loader, poller, codex_loader, cursor_loader, cursor_poller, copilot_loader)
+    app = MonitorWindow(loader, poller, codex_loader, cursor_loader, cursor_poller)
 
     def open_expanded(icon, _):
         app.after(0, app.show_expanded)
@@ -2118,7 +1566,6 @@ def main():
             loader.reload()
             codex_loader.reload()
             cursor_loader.reload()
-            copilot_loader.reload()
             app.after(0, app._update_ui)
             time.sleep(POLL_JSONL_SEC)
     threading.Thread(target=_jsonl_loop, daemon=True).start()
@@ -2129,7 +1576,6 @@ def main():
             loader.reload(),
             codex_loader.reload(),
             cursor_loader.reload(),
-            copilot_loader.reload(),
             cursor_poller.fetch_now(),
             app.after(0, app._update_ui),
         ),
