@@ -31,8 +31,8 @@ CURSOR_DIR   = Path.home() / ".cursor"
 CURSOR_PROJECTS_DIR = CURSOR_DIR / "projects"
 CURSOR_AUTH_FILE = Path(os.environ.get("APPDATA", "")) / "Cursor" / "auth.json"
 CURSOR_STATE_DB  = Path(os.environ.get("APPDATA", "")) / "Cursor" / "User" / "globalStorage" / "state.vscdb"
-COPILOT_DIR  = Path.home() / ".github-copilot"
-COPILOT_SESSIONS_DIR = COPILOT_DIR / "sessions"
+COPILOT_DIR  = Path.home() / ".copilot"
+COPILOT_DB = COPILOT_DIR / "session-store.db"
 
 # ── Intervals ─────────────────────────────────────────────────────────────────
 POLL_API_SEC  = 60
@@ -821,123 +821,124 @@ class CopilotStats:
     __slots__ = ("completions", "sessions", "cost")
 
     def __init__(self):
-       self.completions = 0
-       self.sessions = 0
-       self.cost = 0.0
+        self.completions = 0  # "turns" (interações)
+        self.sessions = 0
+        self.cost = 0.0
 
     @property
     def total(self):
-       return self.completions + self.sessions
+        return self.completions + self.sessions
 
 
 class CopilotLoader:
     def __init__(self):
-       self.today    = CopilotStats()
-       self.alltime  = CopilotStats()
-       self.projects: dict[str, CopilotStats] = {}
-       self.limits: list[dict] = []
-       self.error: "str | None" = None
-       self.updated_at: "datetime | None" = None
-       self._lock = threading.Lock()
+        self.today    = CopilotStats()
+        self.alltime  = CopilotStats()
+        self.projects: dict[str, CopilotStats] = {}
+        self.limits: list[dict] = []
+        self.error: "str | None" = None
+        self.updated_at: "datetime | None" = None
+        self._lock = threading.Lock()
 
     def reload(self):
-       today_date = datetime.now().date()
-       today = CopilotStats(); alltime = CopilotStats(); projects: dict[str, CopilotStats] = {}
-
-       if not COPILOT_SESSIONS_DIR.exists():
-           with self._lock:
-               self.today = today
-               self.alltime = alltime
-               self.projects = projects
-               self.error = "GitHub Copilot não encontrado (~/.github-copilot/sessions)"
-               self.updated_at = datetime.now()
-           return
-
-       try:
-           files = list(COPILOT_SESSIONS_DIR.rglob("*.json"))
-       except Exception as e:
-           with self._lock:
-               self.today = today
-               self.alltime = alltime
-               self.projects = projects
-               self.error = f"Erro ao ler GitHub Copilot: {e}"
-               self.updated_at = datetime.now()
-           return
-
-       for jf in files:
-           cwd = ""
-           try:
-               with open(jf, encoding="utf-8", errors="ignore") as f:
-                   data = json.load(f)
-                    
-                   if not isinstance(data, dict):
-                       continue
-                    
-                   # Extract project path from session metadata
-                   metadata = data.get("metadata", {})
-                   cwd = metadata.get("workspacePath") or metadata.get("projectPath") or ""
-                    
-                   # Get completions data
-                   telemetry = data.get("telemetry", {})
-                   completion_data = telemetry.get("completions", {})
-                    
-                   if not completion_data:
-                       continue
-                    
-                   s = CopilotStats()
-                    
-                   # Parse completion counts
-                   total_completions = int(completion_data.get("totalCompletions") or 0)
-                   accepted_completions = int(completion_data.get("acceptedCompletions") or 0)
-                   rejected_completions = int(completion_data.get("rejectedCompletions") or 0)
-                    
-                   s.completions = total_completions
-                   s.sessions = 1
-                    
-                   alltime.completions += s.completions
-                   alltime.sessions += 1
-                    
-                   # Check if session is from today
-                   ts_raw = metadata.get("timestamp") or metadata.get("createdAt")
-                   if ts_raw:
-                       try:
-                           ts = datetime.fromisoformat(
-                               str(ts_raw).replace("Z", "+00:00"))
-                           if ts.astimezone().date() == today_date:
-                               today.completions += s.completions
-                               today.sessions += 1
-                       except Exception:
-                           pass
-                    
-                   # Add to project
-                   name = _readable_path_name(cwd) if cwd else "Sem projeto"
-                   if name not in projects:
-                       projects[name] = CopilotStats()
-                   projects[name].completions += s.completions
-                   projects[name].sessions += 1
-                    
-           except Exception:
-               continue
-
-       projects = dict(sorted(projects.items(),
-                              key=lambda x: x[1].completions, reverse=True))
+        import sqlite3
         
-       with self._lock:
-           if alltime.total == 0 and self.alltime.total > 0:
-               self.updated_at = datetime.now()
-               return
+        today_date = datetime.now().date()
+        today = CopilotStats()
+        alltime = CopilotStats()
+        projects: dict[str, CopilotStats] = {}
+
+        if not COPILOT_DB.exists():
+            with self._lock:
+                self.today = today
+                self.alltime = alltime
+                self.projects = projects
+                self.error = "GitHub Copilot não encontrado (session-store.db)"
+                self.updated_at = datetime.now()
+            return
+
+        try:
+            conn = sqlite3.connect(str(COPILOT_DB))
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
             
-           self.today    = today
-           self.alltime  = alltime
-           self.projects = projects
-           self.error    = None if alltime.total > 0 else "Sem dados do GitHub Copilot"
-           self.updated_at = datetime.now()
+            # Get all sessions with their metadata
+            cursor.execute("""
+                SELECT id, cwd, repository, created_at, updated_at 
+                FROM sessions
+                ORDER BY created_at DESC
+            """)
+            sessions = cursor.fetchall()
+            
+            for session in sessions:
+                try:
+                    session_id = session['id']
+                    cwd = session['cwd'] or ""
+                    repo = session['repository'] or ""
+                    created_at_str = session['created_at']
+                    
+                    # Parse creation date
+                    try:
+                        created_at = datetime.fromisoformat(
+                            created_at_str.replace("Z", "+00:00")
+                        )
+                    except:
+                        created_at = datetime.now(timezone.utc)
+                    
+                    # Count turns for this session
+                    cursor.execute(
+                        "SELECT COUNT(*) as turn_count FROM turns WHERE session_id = ?",
+                        (session_id,)
+                    )
+                    turn_count = cursor.fetchone()['turn_count']
+                    
+                    if turn_count == 0:
+                        continue
+                    
+                    # Add to alltime
+                    alltime.sessions += 1
+                    alltime.completions += turn_count
+                    
+                    # Check if session is from today
+                    if created_at.astimezone().date() == today_date:
+                        today.sessions += 1
+                        today.completions += turn_count
+                    
+                    # Add to project
+                    project_name = repo or _readable_path_name(cwd) if cwd else "Sem projeto"
+                    if project_name not in projects:
+                        projects[project_name] = CopilotStats()
+                    projects[project_name].sessions += 1
+                    projects[project_name].completions += turn_count
+                    
+                except Exception:
+                    continue
+            
+            conn.close()
+            
+            projects = dict(sorted(projects.items(),
+                                   key=lambda x: x[1].completions, reverse=True))
+            
+            with self._lock:
+                self.today    = today
+                self.alltime  = alltime
+                self.projects = projects
+                self.error    = None if alltime.total > 0 else "Sem sessões do GitHub Copilot"
+                self.updated_at = datetime.now()
+                
+        except Exception as e:
+            with self._lock:
+                self.today = today
+                self.alltime = alltime
+                self.projects = projects
+                self.error = f"Erro ao ler GitHub Copilot: {e}"
+                self.updated_at = datetime.now()
 
     def mins_to_reset(self, lim: dict) -> int:
-       ra = lim.get("reset_at")
-       if not ra:
-           return 0
-       return max(0, int((ra - datetime.now(tz=timezone.utc)).total_seconds() / 60))
+        ra = lim.get("reset_at")
+        if not ra:
+            return 0
+        return max(0, int((ra - datetime.now(tz=timezone.utc)).total_seconds() / 60))
 
 
 class CursorApiPoller:
@@ -1608,10 +1609,11 @@ class MonitorWindow(ctk.CTk):
         card._out.configure(text="")
         card._cr.configure(text="")
 
+    def _fill_copilot_projects(self):
         for w in self._e_proj.winfo_children():
             w.destroy()
 
-        items = list(self.loader.projects.items())[:12]
+        items = list(self.copilot_loader.projects.items())[:12]
         if not items:
             ctk.CTkLabel(self._e_proj, text="Sem dados ainda.",
                          text_color=MUTED, font=("Segoe UI", 10)).pack(pady=16)
@@ -1623,18 +1625,16 @@ class MonitorWindow(ctk.CTk):
 
             left = ctk.CTkFrame(row, fg_color="transparent")
             left.pack(side="left", padx=10, pady=6, fill="x", expand=True)
-            ctk.CTkLabel(left, text=name[:30], font=("Segoe UI", 10, "bold"),
+            ctk.CTkLabel(left, text=name[:40], font=("Segoe UI", 10, "bold"),
                          text_color=TXT, anchor="w").pack(anchor="w")
             ctk.CTkLabel(left,
-                         text=f"↑{fmt_tok(s.inp)}  ↓{fmt_tok(s.out)}  ⚡{fmt_tok(s.cr)}",
+                         text=f"{s.sessions} sess · {s.completions} turns",
                          font=("Segoe UI", 8), text_color=MUTED, anchor="w").pack(anchor="w")
 
             right = ctk.CTkFrame(row, fg_color="transparent")
             right.pack(side="right", padx=10)
-            ctk.CTkLabel(right, text=fmt_tok(s.total),
+            ctk.CTkLabel(right, text=fmt_tok(s.completions),
                          font=("Segoe UI", 10, "bold"), text_color=BLUE).pack(anchor="e")
-            ctk.CTkLabel(right, text=fmt_cost(s.cost),
-                         font=("Segoe UI", 8), text_color=GREEN).pack(anchor="e")
 
     def _fill_codex_projects(self):
         for w in self._e_proj.winfo_children():
