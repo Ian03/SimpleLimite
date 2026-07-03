@@ -7,9 +7,12 @@ Session limits via Anthropic/Cursor OAuth APIs; project costs via local JSONL.
 
 import json
 import os
+import queue
 import sqlite3
+import sys
 import threading
 import time
+import traceback
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -25,6 +28,7 @@ CLAUDE_DIR   = Path.home() / ".claude"
 PROJECTS_DIR = CLAUDE_DIR / "projects"
 CREDS_FILE   = CLAUDE_DIR / ".credentials.json"
 CONFIG_FILE  = Path(__file__).parent / "config.json"
+LOG_FILE     = Path(__file__).parent / "simplelimite.log"
 CODEX_DIR    = Path.home() / ".codex"
 CODEX_SESSIONS_DIR = CODEX_DIR / "sessions"
 CURSOR_DIR   = Path.home() / ".cursor"
@@ -61,6 +65,41 @@ ORANGE = "#f0883e"
 RED    = "#f85149"
 
 ALERT_PCT = 0.70
+
+
+def _log_error(context: str, exc: BaseException) -> None:
+    try:
+        with LOG_FILE.open("a", encoding="utf-8") as f:
+            f.write(f"\n[{datetime.now().isoformat(timespec='seconds')}] {context}\n")
+            traceback.print_exception(type(exc), exc, exc.__traceback__, file=f)
+    except Exception:
+        pass
+
+
+def _thread(target, name: str):
+    def _runner():
+        try:
+            target()
+        except Exception as exc:
+            _log_error(f"Thread crashed: {name}", exc)
+
+    threading.Thread(target=_runner, name=name, daemon=True).start()
+
+
+def _install_exception_logging():
+    def _excepthook(exc_type, exc, tb):
+        _log_error("Unhandled exception", exc)
+        try:
+            if sys.__excepthook__:
+                sys.__excepthook__(exc_type, exc, tb)
+        except Exception:
+            pass
+
+    def _threading_excepthook(args):
+        _log_error(f"Unhandled thread exception: {args.thread.name}", args.exc_value)
+
+    sys.excepthook = _excepthook
+    threading.excepthook = _threading_excepthook
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -864,7 +903,7 @@ class CursorApiPoller:
                             delay = secs + 2
                             break
                 time.sleep(delay)
-        threading.Thread(target=_loop, daemon=True).start()
+        _thread(_loop, "cursor-api-poller")
 
     @property
     def top(self) -> "dict | None":
@@ -929,7 +968,7 @@ class ApiPoller:
                             delay = secs + 2
                             break
                 time.sleep(delay)
-        threading.Thread(target=_loop, daemon=True).start()
+        _thread(_loop, "claude-api-poller")
 
     @property
     def top(self) -> "dict | None":
@@ -973,6 +1012,7 @@ class MonitorWindow(ctk.CTk):
         self._mode  = self.MINIMAL
         self._tab   = "Claude"
         self._quitting = False
+        self._ui_queue = queue.Queue()
         self._dx = self._dy = self._wx = self._wy = 0
 
         ctk.set_appearance_mode("dark")
@@ -985,14 +1025,36 @@ class MonitorWindow(ctk.CTk):
         self.protocol("WM_DELETE_WINDOW", self._handle_window_close)
         self.bind("<Unmap>", self._handle_unmap)
 
-        self.poller.on_update(lambda: self.after(0, self._update_ui))
-        self.cursor_poller.on_update(lambda: self.after(0, self._update_ui))
+        self.poller.on_update(self.request_ui_update)
+        self.cursor_poller.on_update(self.request_ui_update)
         self._build()
+        self.after(250, self._drain_ui_queue)
         self.after(1000, self._keep_minimal_visible)
 
     def quit(self):
         self._quitting = True
         self.destroy()
+
+    def request_ui_update(self):
+        self.request_ui_call(self._update_ui)
+
+    def request_ui_call(self, fn):
+        if not self._quitting:
+            self._ui_queue.put(fn)
+
+    def _drain_ui_queue(self):
+        if self._quitting or not self.winfo_exists():
+            return
+        while True:
+            try:
+                fn = self._ui_queue.get_nowait()
+            except queue.Empty:
+                break
+            try:
+                fn()
+            except Exception as exc:
+                _log_error("UI callback failed", exc)
+        self.after(250, self._drain_ui_queue)
 
     def _handle_window_close(self):
         if self._quitting:
@@ -1492,7 +1554,7 @@ class MonitorWindow(ctk.CTk):
                          font=("Segoe UI", 8), text_color=GREEN).pack(anchor="e")
 
     def _manual_refresh(self):
-        threading.Thread(target=self._bg_refresh, daemon=True).start()
+        _thread(self._bg_refresh, "manual-refresh")
 
     def _bg_refresh(self):
         self.loader.reload()
@@ -1539,11 +1601,11 @@ def main():
     app = MonitorWindow(loader, poller, codex_loader, cursor_loader, cursor_poller)
 
     def open_expanded(icon, _):
-        app.after(0, app.show_expanded)
+        app.request_ui_call(app.show_expanded)
 
     def quit_app(icon, _):
         icon.stop()
-        app.after(0, app.quit)
+        app.request_ui_call(app.quit)
 
     tray = pystray.Icon(
         "claude-tokens",
@@ -1563,24 +1625,27 @@ def main():
     # Background: JSONL refresh loop
     def _jsonl_loop():
         while True:
-            loader.reload()
-            codex_loader.reload()
-            cursor_loader.reload()
-            app.after(0, app._update_ui)
+            try:
+                loader.reload()
+                codex_loader.reload()
+                cursor_loader.reload()
+                app.request_ui_update()
+            except Exception as exc:
+                _log_error("JSONL refresh failed", exc)
             time.sleep(POLL_JSONL_SEC)
-    threading.Thread(target=_jsonl_loop, daemon=True).start()
+    _thread(_jsonl_loop, "jsonl-refresh")
 
     # Initial JSONL load before first render
-    threading.Thread(
-        target=lambda: (
+    _thread(
+        lambda: (
             loader.reload(),
             codex_loader.reload(),
             cursor_loader.reload(),
             cursor_poller.fetch_now(),
-            app.after(0, app._update_ui),
+            app.request_ui_update(),
         ),
-        daemon=True,
-    ).start()
+        "initial-refresh",
+    )
 
     # Start in minimal pill mode (always visible in corner)
     app.deiconify()
@@ -1590,4 +1655,5 @@ def main():
 
 
 if __name__ == "__main__":
+    _install_exception_logging()
     main()
