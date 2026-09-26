@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from PySide6.QtCore import Qt, Signal, QPoint, QRectF
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QApplication, QFrame, QHBoxLayout, QLabel, QMainWindow, QPushButton,
@@ -37,6 +37,7 @@ QPushButton#tab:checked {{ background: #243650; color: {BLUE}; }}
 QPushButton#expand {{ font-size: 13pt; padding: 2px 8px; }}
 QProgressBar {{ border: 0; border-radius: 4px; background: {BORDER}; max-height: 8px; text-align: center; }}
 QProgressBar::chunk {{ border-radius: 4px; background: {BLUE}; }}
+QProgressBar#compactBar {{ min-height: 7px; max-height: 7px; }}
 QScrollArea {{ border: 0; background: transparent; }}
 QScrollArea QWidget#scrollContents {{ background: transparent; }}
 QScrollBar:vertical {{ width: 7px; background: transparent; margin: 3px; }}
@@ -89,7 +90,7 @@ class UsageRing(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        rect = QRectF(3.5, 3.5, 21, 21)
+        rect = self.rect().adjusted(3, 3, -3, -3)
         painter.setPen(QPen(QColor(BORDER), 3))
         painter.drawArc(rect, 0, 360 * 16)
         painter.setPen(QPen(self.accent, 3, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
@@ -113,6 +114,7 @@ class MonitorWindow(QMainWindow):
         self._tab = "Claude"
         self._quitting = False
         self._drag_offset = None
+        self._minimal_size = None
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, False)
@@ -186,9 +188,17 @@ class MonitorWindow(QMainWindow):
         return layout
 
     def _build(self):
+        # The expanded view is fixed-size; release that constraint before
+        # rebuilding so the compact droplet can shrink to its own contents.
+        self.setMinimumSize(1, 1)
+        self.setMaximumSize(16777215, 16777215)
         if self._mode == self.MINIMAL:
             self._build_minimal()
-            self.setFixedSize(self.sizeHint())
+            self.root_layout.activate()
+            if self._minimal_size is None:
+                self.adjustSize()
+                self._minimal_size = self.sizeHint()
+            self.setFixedSize(self._minimal_size)
             self._position_minimal()
         else:
             self._build_expanded()
@@ -205,16 +215,10 @@ class MonitorWindow(QMainWindow):
         layout.addLayout(row)
         self._m_ring = UsageRing()
         row.addWidget(self._m_ring)
-        self._m_lbl = QLabel("Claude")
-        self._m_lbl.setStyleSheet("font-weight: 700")
-        row.addWidget(self._m_lbl)
-        self._m_pct = QLabel("...")
+        self._m_pct = QLabel("--%")
         self._m_pct.setStyleSheet(f"color: {BLUE}; font-weight: 700")
         row.addWidget(self._m_pct)
-        self._m_reset = QLabel("")
-        self._m_reset.setObjectName("muted")
-        row.addWidget(self._m_reset)
-        expand = QPushButton("⌄")
+        expand = QPushButton("⤢")
         expand.setObjectName("expand")
         expand.clicked.connect(self._go_expanded)
         row.addWidget(expand)
@@ -239,7 +243,7 @@ class MonitorWindow(QMainWindow):
         refresh = QPushButton("↻")
         refresh.clicked.connect(self._manual_refresh)
         h.addWidget(refresh)
-        close = QPushButton("⌃")
+        close = QPushButton("—")
         close.clicked.connect(self._go_minimal)
         h.addWidget(close)
         layout.addWidget(header)
@@ -367,19 +371,15 @@ class MonitorWindow(QMainWindow):
         _, limits, source = self._selected()
         top = (source.top if self._tab == "Cursor" else limits[0] if limits else None)
         if top is None:
-            self._m_pct.setText("...")
-            self._m_lbl.setText(f"{self._tab}: sem dados")
-            self._m_reset.setText("")
+            self._m_pct.setText("--%")
+            self._m_pct.setStyleSheet(f"color: {MUTED}; font-weight: 700")
             self._m_ring.set_value(0, BORDER)
             return
         pct = top["pct"]
         accent = _color(pct)
         self._m_ring.set_value(pct, accent)
-        self._m_lbl.setText(top["label"])
         self._m_pct.setText(f"{pct:.0f}%")
         self._m_pct.setStyleSheet(f"color: {accent}; font-weight: 700")
-        mins = source.mins_to_reset(top)
-        self._m_reset.setText(f"reset {_fmt_dur(mins)}" if mins > 0 else "")
 
     def _update_expanded(self):
         data, limits, source = self._selected()
