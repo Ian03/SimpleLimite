@@ -1,0 +1,624 @@
+
+[2026-07-10T14:55:40] UI callback failed
+Traceback (most recent call last):
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1054, in _drain_ui_queue
+    fn()
+    ~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1571, in show_expanded
+    self._update_ui()
+    ~~~~~~~~~~~~~~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1296, in _update_ui
+    self._update_expanded()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1375, in _update_expanded
+    self._fill_projects()
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\tkinter\__init__.py", line 2571, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_fill_projects'
+
+[2026-07-10T14:55:41] UI callback failed
+Traceback (most recent call last):
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1054, in _drain_ui_queue
+    fn()
+    ~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1571, in show_expanded
+    self._update_ui()
+    ~~~~~~~~~~~~~~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1296, in _update_ui
+    self._update_expanded()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1375, in _update_expanded
+    self._fill_projects()
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\tkinter\__init__.py", line 2571, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_fill_projects'
+
+[2026-07-10T14:55:41] UI callback failed
+Traceback (most recent call last):
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1054, in _drain_ui_queue
+    fn()
+    ~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1571, in show_expanded
+    self._update_ui()
+    ~~~~~~~~~~~~~~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1296, in _update_ui
+    self._update_expanded()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1375, in _update_expanded
+    self._fill_projects()
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\tkinter\__init__.py", line 2571, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_fill_projects'
+
+[2026-07-10T14:55:41] UI callback failed
+Traceback (most recent call last):
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1054, in _drain_ui_queue
+    fn()
+    ~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1296, in _update_ui
+    self._update_expanded()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1375, in _update_expanded
+    self._fill_projects()
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\tkinter\__init__.py", line 2571, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_fill_projects'
+
+[2026-07-10T14:55:44] UI callback failed
+Traceback (most recent call last):
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1054, in _drain_ui_queue
+    fn()
+    ~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1296, in _update_ui
+    self._update_expanded()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1375, in _update_expanded
+    self._fill_projects()
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\tkinter\__init__.py", line 2571, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_fill_projects'
+
+[2026-07-10T15:44:08] UI callback failed
+Traceback (most recent call last):
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1054, in _drain_ui_queue
+    fn()
+    ~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1571, in show_expanded
+    self._update_ui()
+    ~~~~~~~~~~~~~~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1296, in _update_ui
+    self._update_expanded()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1375, in _update_expanded
+    self._fill_projects()
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\tkinter\__init__.py", line 2571, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_fill_projects'
+
+[2026-07-10T16:00:01] UI callback failed
+Traceback (most recent call last):
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1054, in _drain_ui_queue
+    fn()
+    ~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1571, in show_expanded
+    self._update_ui()
+    ~~~~~~~~~~~~~~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1296, in _update_ui
+    self._update_expanded()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1375, in _update_expanded
+    self._fill_projects()
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\tkinter\__init__.py", line 2571, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_fill_projects'
+
+[2026-07-10T16:00:03] UI callback failed
+Traceback (most recent call last):
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1054, in _drain_ui_queue
+    fn()
+    ~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1296, in _update_ui
+    self._update_expanded()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1375, in _update_expanded
+    self._fill_projects()
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\tkinter\__init__.py", line 2571, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_fill_projects'
+
+[2026-07-10T16:00:33] UI callback failed
+Traceback (most recent call last):
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1054, in _drain_ui_queue
+    fn()
+    ~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1296, in _update_ui
+    self._update_expanded()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1375, in _update_expanded
+    self._fill_projects()
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\tkinter\__init__.py", line 2571, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_fill_projects'
+
+[2026-07-10T16:00:39] UI callback failed
+Traceback (most recent call last):
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1054, in _drain_ui_queue
+    fn()
+    ~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1296, in _update_ui
+    self._update_expanded()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1375, in _update_expanded
+    self._fill_projects()
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\tkinter\__init__.py", line 2571, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_fill_projects'
+
+[2026-07-10T16:01:03] UI callback failed
+Traceback (most recent call last):
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1054, in _drain_ui_queue
+    fn()
+    ~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1296, in _update_ui
+    self._update_expanded()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1375, in _update_expanded
+    self._fill_projects()
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\tkinter\__init__.py", line 2571, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_fill_projects'
+
+[2026-07-10T17:47:33] UI callback failed
+Traceback (most recent call last):
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1054, in _drain_ui_queue
+    fn()
+    ~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1296, in _update_ui
+    self._update_expanded()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1375, in _update_expanded
+    self._fill_projects()
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\tkinter\__init__.py", line 2571, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_fill_projects'
+
+[2026-07-10T17:47:40] UI callback failed
+Traceback (most recent call last):
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1054, in _drain_ui_queue
+    fn()
+    ~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1296, in _update_ui
+    self._update_expanded()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1375, in _update_expanded
+    self._fill_projects()
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\tkinter\__init__.py", line 2571, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_fill_projects'
+
+[2026-07-10T17:47:40] UI callback failed
+Traceback (most recent call last):
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1054, in _drain_ui_queue
+    fn()
+    ~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1296, in _update_ui
+    self._update_expanded()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1375, in _update_expanded
+    self._fill_projects()
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\tkinter\__init__.py", line 2571, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_fill_projects'
+
+[2026-09-14T18:46:50] UI callback failed
+Traceback (most recent call last):
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1054, in _drain_ui_queue
+    fn()
+    ~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1571, in show_expanded
+    self._update_ui()
+    ~~~~~~~~~~~~~~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1296, in _update_ui
+    self._update_expanded()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1375, in _update_expanded
+    self._fill_projects()
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\tkinter\__init__.py", line 2592, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_fill_projects'
+
+[2026-09-15T16:31:44] UI callback failed
+Traceback (most recent call last):
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1054, in _drain_ui_queue
+    fn()
+    ~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1571, in show_expanded
+    self._update_ui()
+    ~~~~~~~~~~~~~~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1296, in _update_ui
+    self._update_expanded()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1375, in _update_expanded
+    self._fill_projects()
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\tkinter\__init__.py", line 2592, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_fill_projects'
+
+[2026-09-16T18:23:01] UI callback failed
+Traceback (most recent call last):
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1054, in _drain_ui_queue
+    fn()
+    ~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1571, in show_expanded
+    self._update_ui()
+    ~~~~~~~~~~~~~~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1296, in _update_ui
+    self._update_expanded()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1375, in _update_expanded
+    self._fill_projects()
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\tkinter\__init__.py", line 2592, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_fill_projects'
+
+[2026-09-17T17:28:11] UI callback failed
+Traceback (most recent call last):
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1054, in _drain_ui_queue
+    fn()
+    ~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1571, in show_expanded
+    self._update_ui()
+    ~~~~~~~~~~~~~~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1296, in _update_ui
+    self._update_expanded()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1375, in _update_expanded
+    self._fill_projects()
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\tkinter\__init__.py", line 2592, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_fill_projects'
+
+[2026-09-18T18:56:01] UI callback failed
+Traceback (most recent call last):
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1054, in _drain_ui_queue
+    fn()
+    ~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1571, in show_expanded
+    self._update_ui()
+    ~~~~~~~~~~~~~~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1296, in _update_ui
+    self._update_expanded()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1375, in _update_expanded
+    self._fill_projects()
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\tkinter\__init__.py", line 2592, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_fill_projects'
+
+[2026-09-18T18:56:02] UI callback failed
+Traceback (most recent call last):
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1054, in _drain_ui_queue
+    fn()
+    ~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1296, in _update_ui
+    self._update_expanded()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1375, in _update_expanded
+    self._fill_projects()
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\tkinter\__init__.py", line 2592, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_fill_projects'
+
+[2026-09-18T18:56:03] UI callback failed
+Traceback (most recent call last):
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1054, in _drain_ui_queue
+    fn()
+    ~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1296, in _update_ui
+    self._update_expanded()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1375, in _update_expanded
+    self._fill_projects()
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\tkinter\__init__.py", line 2592, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_fill_projects'
+
+[2026-09-18T18:56:03] UI callback failed
+Traceback (most recent call last):
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1054, in _drain_ui_queue
+    fn()
+    ~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1296, in _update_ui
+    self._update_expanded()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1375, in _update_expanded
+    self._fill_projects()
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\tkinter\__init__.py", line 2592, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_fill_projects'
+
+[2026-09-19T14:42:03] UI callback failed
+Traceback (most recent call last):
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1054, in _drain_ui_queue
+    fn()
+    ~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1571, in show_expanded
+    self._update_ui()
+    ~~~~~~~~~~~~~~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1296, in _update_ui
+    self._update_expanded()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1375, in _update_expanded
+    self._fill_projects()
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\tkinter\__init__.py", line 2592, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_fill_projects'
+
+[2026-09-19T14:42:04] UI callback failed
+Traceback (most recent call last):
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1054, in _drain_ui_queue
+    fn()
+    ~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1296, in _update_ui
+    self._update_expanded()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1375, in _update_expanded
+    self._fill_projects()
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\tkinter\__init__.py", line 2592, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_fill_projects'
+
+[2026-09-19T22:10:40] UI callback failed
+Traceback (most recent call last):
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1054, in _drain_ui_queue
+    fn()
+    ~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1571, in show_expanded
+    self._update_ui()
+    ~~~~~~~~~~~~~~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1296, in _update_ui
+    self._update_expanded()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1375, in _update_expanded
+    self._fill_projects()
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\tkinter\__init__.py", line 2592, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_fill_projects'
+
+[2026-09-20T09:45:33] UI callback failed
+Traceback (most recent call last):
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1054, in _drain_ui_queue
+    fn()
+    ~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1571, in show_expanded
+    self._update_ui()
+    ~~~~~~~~~~~~~~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1296, in _update_ui
+    self._update_expanded()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1375, in _update_expanded
+    self._fill_projects()
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\tkinter\__init__.py", line 2592, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_fill_projects'
+
+[2026-09-22T18:08:35] UI callback failed
+Traceback (most recent call last):
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1054, in _drain_ui_queue
+    fn()
+    ~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1571, in show_expanded
+    self._update_ui()
+    ~~~~~~~~~~~~~~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1296, in _update_ui
+    self._update_expanded()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1375, in _update_expanded
+    self._fill_projects()
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\tkinter\__init__.py", line 2592, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_fill_projects'
+
+[2026-09-22T18:08:42] UI callback failed
+Traceback (most recent call last):
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1054, in _drain_ui_queue
+    fn()
+    ~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1296, in _update_ui
+    self._update_expanded()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1375, in _update_expanded
+    self._fill_projects()
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\tkinter\__init__.py", line 2592, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_fill_projects'
+
+[2026-09-23T16:30:40] UI callback failed
+Traceback (most recent call last):
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1054, in _drain_ui_queue
+    fn()
+    ~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1571, in show_expanded
+    self._update_ui()
+    ~~~~~~~~~~~~~~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1296, in _update_ui
+    self._update_expanded()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1375, in _update_expanded
+    self._fill_projects()
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\tkinter\__init__.py", line 2592, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_fill_projects'
+
+[2026-09-23T16:31:36] UI callback failed
+Traceback (most recent call last):
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1054, in _drain_ui_queue
+    fn()
+    ~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1571, in show_expanded
+    self._update_ui()
+    ~~~~~~~~~~~~~~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1296, in _update_ui
+    self._update_expanded()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1375, in _update_expanded
+    self._fill_projects()
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\tkinter\__init__.py", line 2592, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_fill_projects'
+
+[2026-09-23T18:24:20] UI callback failed
+Traceback (most recent call last):
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1054, in _drain_ui_queue
+    fn()
+    ~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1571, in show_expanded
+    self._update_ui()
+    ~~~~~~~~~~~~~~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1296, in _update_ui
+    self._update_expanded()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1375, in _update_expanded
+    self._fill_projects()
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\tkinter\__init__.py", line 2592, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_fill_projects'
+
+[2026-09-23T20:00:43] UI callback failed
+Traceback (most recent call last):
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1054, in _drain_ui_queue
+    fn()
+    ~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1571, in show_expanded
+    self._update_ui()
+    ~~~~~~~~~~~~~~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1296, in _update_ui
+    self._update_expanded()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1375, in _update_expanded
+    self._fill_projects()
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\tkinter\__init__.py", line 2592, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_fill_projects'
+
+[2026-09-25T16:16:36] UI callback failed
+Traceback (most recent call last):
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1054, in _drain_ui_queue
+    fn()
+    ~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1571, in show_expanded
+    self._update_ui()
+    ~~~~~~~~~~~~~~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1296, in _update_ui
+    self._update_expanded()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1375, in _update_expanded
+    self._fill_projects()
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\tkinter\__init__.py", line 2592, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_fill_projects'
+
+[2026-09-25T17:14:57] UI callback failed
+Traceback (most recent call last):
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1054, in _drain_ui_queue
+    fn()
+    ~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1571, in show_expanded
+    self._update_ui()
+    ~~~~~~~~~~~~~~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1296, in _update_ui
+    self._update_expanded()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1375, in _update_expanded
+    self._fill_projects()
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\tkinter\__init__.py", line 2592, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_fill_projects'
+
+[2026-09-25T17:56:25] UI callback failed
+Traceback (most recent call last):
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1054, in _drain_ui_queue
+    fn()
+    ~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1571, in show_expanded
+    self._update_ui()
+    ~~~~~~~~~~~~~~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1296, in _update_ui
+    self._update_expanded()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "F:\Deverlop\Apps\SimpleLimite\main.py", line 1375, in _update_expanded
+    self._fill_projects()
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\tkinter\__init__.py", line 2592, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_fill_projects'
+
+[2026-09-25T22:44:54] UI callback failed
+Traceback (most recent call last):
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1055, in _drain_ui_queue
+    fn()
+    ~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1555, in show_expanded
+    self._update_ui()
+    ~~~~~~~~~~~~~~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1279, in _update_ui
+    self._update_expanded()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1359, in _update_expanded
+    self._fill_projects()
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\tkinter\__init__.py", line 2592, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_fill_projects'
+
+[2026-09-25T22:46:34] UI callback failed
+Traceback (most recent call last):
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1064, in _drain_ui_queue
+    fn()
+    ~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1564, in show_expanded
+    self._update_ui()
+    ~~~~~~~~~~~~~~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1288, in _update_ui
+    self._update_expanded()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "D:\Deverlop\Apps\SimpleLimite\main.py", line 1368, in _update_expanded
+    self._fill_projects()
+    ^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\tkinter\__init__.py", line 2592, in __getattr__
+    return getattr(self.tk, attr)
+AttributeError: '_tkinter.tkapp' object has no attribute '_fill_projects'
