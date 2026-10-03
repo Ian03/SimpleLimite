@@ -1,8 +1,8 @@
 """PySide6 presentation layer for the Simple Limite monitor."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QEvent
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QApplication, QFrame, QHBoxLayout, QLabel, QMainWindow, QPushButton,
@@ -103,18 +103,20 @@ class MonitorWindow(QMainWindow):
     MINIMAL = "minimal"
     EXPANDED = "expanded"
 
-    def __init__(self, loader, poller, codex_loader, cursor_loader, cursor_poller):
+    def __init__(self, loader, poller, codex_loader, cursor_loader, cursor_poller, codex_poller):
         super().__init__()
         self.loader = loader
         self.poller = poller
         self.codex_loader = codex_loader
         self.cursor_loader = cursor_loader
         self.cursor_poller = cursor_poller
+        self.codex_poller = codex_poller
         self._mode = self.MINIMAL
         self._tab = "Claude"
         self._quitting = False
         self._drag_offset = None
         self._minimal_size = None
+        self._user_position = None
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, False)
@@ -127,6 +129,7 @@ class MonitorWindow(QMainWindow):
         self.ui_call.connect(self._run_ui_call)
         self.poller.on_update(self.request_ui_update)
         self.cursor_poller.on_update(self.request_ui_update)
+        self.codex_poller.on_update(self.request_ui_update)
         self._build()
         self._position_minimal()
         self._timer = self.startTimer(15000)
@@ -167,16 +170,37 @@ class MonitorWindow(QMainWindow):
     def mouseMoveEvent(self, event):
         if self._drag_offset is not None and event.buttons() & Qt.MouseButton.LeftButton:
             self.move(event.globalPosition().toPoint() - self._drag_offset)
+            self._user_position = self.pos()
             event.accept()
 
     def mouseReleaseEvent(self, event):
         self._drag_offset = None
 
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+            self.mousePressEvent(event)
+            return True
+        if event.type() == QEvent.Type.MouseMove and self._drag_offset is not None:
+            self.mouseMoveEvent(event)
+            return True
+        if event.type() == QEvent.Type.MouseButtonRelease and self._drag_offset is not None:
+            self.mouseReleaseEvent(event)
+            return True
+        return super().eventFilter(obj, event)
+
     def _position_minimal(self):
+        if self._user_position is not None:
+            self.move(self._user_position)
+            return
         screen = QApplication.primaryScreen().availableGeometry()
         self.move(screen.right() - self.width() - 14, screen.bottom() - self.height() - 14)
 
     def _position_expanded(self):
+        if self._user_position is not None:
+            screen = (QApplication.screenAt(self._user_position) or QApplication.primaryScreen()).availableGeometry()
+            self.move(max(screen.left(), min(self._user_position.x(), screen.right() - self.width())),
+                      max(screen.top(), min(self._user_position.y(), screen.bottom() - self.height())))
+            return
         screen = QApplication.primaryScreen().availableGeometry()
         self.move(screen.right() - self.width() - 14, screen.bottom() - self.height() - 14)
 
@@ -216,6 +240,8 @@ class MonitorWindow(QMainWindow):
         self._m_ring = UsageRing()
         row.addWidget(self._m_ring)
         self._m_pct = QLabel("--%")
+        self._m_pct.installEventFilter(self)
+        self._m_ring.installEventFilter(self)
         self._m_pct.setStyleSheet(f"color: {BLUE}; font-weight: 700")
         row.addWidget(self._m_pct)
         expand = QPushButton("⤢")
@@ -234,6 +260,8 @@ class MonitorWindow(QMainWindow):
         dot.setStyleSheet(f"color: {BLUE}")
         h.addWidget(dot)
         title = QLabel("Simple Limite")
+        for drag_widget in (header, dot, title):
+            drag_widget.installEventFilter(self)
         title.setStyleSheet("font-size: 12pt; font-weight: 700")
         h.addWidget(title)
         h.addStretch(1)
@@ -277,7 +305,12 @@ class MonitorWindow(QMainWindow):
         self._limits_layout = QVBoxLayout(self._e_limits)
         self._limits_layout.setContentsMargins(12, 8, 12, 10)
         self._limits_layout.setSpacing(7)
-        layout.addWidget(self._e_limits)
+        limits_scroll = QScrollArea()
+        limits_scroll.setWidgetResizable(True)
+        limits_scroll.setWidget(self._e_limits)
+        limits_scroll.setMinimumHeight(140)
+        limits_scroll.setMaximumHeight(300)
+        layout.addWidget(limits_scroll, 1)
 
         cards = QHBoxLayout()
         cards.setSpacing(8)
@@ -362,13 +395,22 @@ class MonitorWindow(QMainWindow):
 
     def _selected(self):
         if self._tab == "Codex":
-            return self.codex_loader, self.codex_loader.limits, self.codex_loader
+            source = self.codex_poller if self.codex_poller.limits else self.codex_loader
+            return self.codex_loader, source.limits, source
         if self._tab == "Cursor":
             return self.cursor_loader, self.cursor_poller.limits or self.cursor_loader.limits, self.cursor_poller
         return self.loader, self.poller.limits, self.poller
 
     def _update_minimal(self):
         _, limits, source = self._selected()
+        tooltip = [self._tab]
+        for lim in limits:
+            reset = lim.get("reset_at")
+            tooltip.append(f"{lim['label']}: {lim['pct']:.0f}% usado" +
+                           (f" · reset {reset.astimezone():%d/%m %H:%M}" if reset else ""))
+        if getattr(source, "error", None):
+            tooltip.append(source.error)
+        self.root.setToolTip("\n".join(tooltip))
         top = (source.top if self._tab == "Cursor" else limits[0] if limits else None)
         if top is None:
             self._m_pct.setText("--%")
@@ -392,7 +434,20 @@ class MonitorWindow(QMainWindow):
             message = QLabel(f"⚠ {err}" if err else "Aguardando dados…")
             message.setObjectName("muted")
             self._limits_layout.addWidget(message)
+        if self._tab == "Codex":
+            for note in self.codex_poller.notes:
+                self._limit_note(note)
+            if source is self.codex_loader:
+                self._limit_note("Histórico local · resets extras não informados")
+            else:
+                self._limit_note("API Codex" + (" · dados anteriores" if source.stale else " · sincronizado"))
+            if self.codex_poller.error:
+                self._limit_note(self.codex_poller.error, ORANGE)
+        elif err and limits:
+            self._limit_note(f"Dados anteriores · {err}", ORANGE)
         timestamp = getattr(source, "fetched_at", None) or getattr(data, "updated_at", None)
+        if timestamp:
+            timestamp = timestamp.astimezone()
         self._e_api_ts.setText(timestamp.strftime("%H:%M:%S") if timestamp else "")
         self._e_time.setText(timestamp.strftime("Atualizado %H:%M") if timestamp else "")
         if self._tab == "Claude":
@@ -411,6 +466,12 @@ class MonitorWindow(QMainWindow):
         for name, total, cost, detail in projects:
             self._project_row(name, total, cost, detail)
         self._projects_layout.addStretch(1)
+
+    def _limit_note(self, text, color=MUTED):
+        note = QLabel(text)
+        note.setWordWrap(True)
+        note.setStyleSheet(f"color: {color}; font-size: 8pt")
+        self._limits_layout.addWidget(note)
 
     def _render_bar(self, lim, source):
         item = QWidget()
@@ -435,7 +496,17 @@ class MonitorWindow(QMainWindow):
         bar.setStyleSheet(f"QProgressBar::chunk {{ background: {color}; }}")
         layout.addWidget(bar)
         mins = source.mins_to_reset(lim)
-        meta = QLabel(f"reset {_fmt_dur(mins)}" if mins > 0 else "")
+        reset = lim.get("reset_at")
+        if reset:
+            remaining = f"em {_fmt_dur(mins)}" if reset > datetime.now(timezone.utc) else "aguardando atualização"
+            text = f"{100 - pct:.0f}% disponível · reset {reset.astimezone():%d/%m %H:%M} ({remaining})"
+        else:
+            text = f"{100 - pct:.0f}% disponível · reset não informado"
+        if lim.get("kind") == "credits":
+            text = f"{_fmt_cost(lim['used_usd'])} / {_fmt_cost(lim['cap_usd'])} usados" + (
+                f" · reset {reset.astimezone():%d/%m %H:%M}" if reset else "")
+        meta = QLabel(text)
+        meta.setWordWrap(True)
         meta.setObjectName("muted")
         meta.setStyleSheet(f"color: {GREEN if mins > 60 else ORANGE}; font-size: 8pt")
         layout.addWidget(meta)
@@ -484,8 +555,12 @@ class MonitorWindow(QMainWindow):
         threading.Thread(target=self._bg_refresh, name="manual-refresh", daemon=True).start()
 
     def _bg_refresh(self):
-        self.loader.reload()
-        self.codex_loader.reload()
-        self.cursor_loader.reload()
-        self.poller.fetch_now()
-        self.cursor_poller.fetch_now()
+        try:
+            self.codex_poller.fetch_now()
+            self.loader.reload()
+            self.codex_loader.reload()
+            self.cursor_loader.reload()
+            self.poller.fetch_now()
+            self.cursor_poller.fetch_now()
+        finally:
+            self.request_ui_update()

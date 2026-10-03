@@ -1,222 +1,67 @@
 <div align="center">
-  <img src="docs/logo.png" width="96" alt="Claude Token Monitor" />
+  <img src="docs/logo.png" width="96" alt="Simple Limite" />
 
-  # Claude Token Monitor
+  # Simple Limite
 
-  Monitor de tokens do **Claude Code**, **Codex** e **Cursor** na bandeja do Windows.
-  Lê arquivos locais — sem API, sem custo extra.
-
-  ![preview](docs/preview.png)
+  Monitor de uso dos planos Claude Code, Codex e Cursor na bandeja do Windows.
 </div>
 
----
+O app consulta o uso dos planos com as credenciais já presentes na máquina e lê o histórico local para mostrar tokens de hoje, total e projetos. Os tokens do histórico são estatísticas: os percentuais de limite vêm dos provedores.
 
-## O que é
+## Informações disponíveis
 
-Claude Token Monitor é um app leve que fica na bandeja do sistema e mostra em tempo real quanto você está usando do seu limite de tokens do Claude Code, Codex e Cursor — incluindo o consumo de hoje, o histórico total, o uso da janela atual e o tempo até o próximo reset.
+- **Claude:** janela de 5 horas, limites semanais e por modelo, quando retornados pela API; créditos extras com consumo e teto.
+- **Codex:** janelas principal e secundária, incluindo uso semanal, revisão de código e limites adicionais, quando disponíveis. A duração informada pela API define o nome da janela; uma janela de 5 horas não é um limite diário.
+- **Codex:** plano, permissão de uso, limite atingido, saldo de créditos extras, resets extras disponíveis e sua primeira expiração, quando informados. O app apenas consulta esses resets.
+- **Cursor:** limites do plano pela API e histórico de eventos de uso.
+- **Reset:** percentual restante, data/hora local e tempo até a renovação. Um reset vencido aparece como aguardando atualização, sem zerar artificialmente o consumo.
+- **Sincronização:** fonte e horário da última consulta na aba Codex; erros continuam visíveis quando há dados anteriores. Sem API disponível, o Codex pode mostrar o último registro local, identificado como histórico.
 
----
+O uso dos planos é consultado a cada 60 segundos e o histórico local a cada 30 segundos. A API Codex retornando HTTP 429 adia as próximas tentativas por pelo menos cinco minutos, inclusive ao clicar em atualizar. Os últimos dados são preservados com indicação de falha. Uma autenticação expirada ou recusada pede para reabrir o Codex ou executar `codex login`; o monitor relê suas credenciais sem alterá-las.
 
-## Funcionalidades
+## Instalação e execução
 
-- **Ícone na bandeja** — sempre visível, sem janelas abertas
-- **Hover no ícone** — mostra % de uso e tempo até o reset sem precisar abrir nada
-- **Tokens de hoje** — consumo do dia com custo estimado em USD
-- **Total acumulado** — histórico de todas as sessões desde o início
-- **Sessão atual** — barra de progresso com % do limite e countdown do reset
-- **Aba Codex** — lê sessões locais do Codex em `~/.codex/sessions`
-- **Aba Cursor** — limites via API do Cursor (`api2.cursor.sh`) e histórico de tokens por evento de uso
-- **Por projeto** — cada repositório com input, output, cache e custo
-- **Notificações nativas** — alerta ao atingir 70% e aviso 60 min antes do reset
-- **Calibração** — sincroniza os valores com a página real do Claude Code
-- **Atualização automática** — dados recarregados a cada 30 segundos
+Requisitos: Windows 10/11, Python 3.10+ e os clientes dos provedores instalados e autenticados.
 
----
-
-## Requisitos
-
-- Windows 10 ou 11
-- Python 3.10 ou superior
-- Claude Code instalado com histórico em `~/.claude/`
-- Codex instalado com histórico em `~/.codex/` para a aba Codex
-- Cursor instalado e autenticado (token em `%APPDATA%\Cursor\auth.json` ou `state.vscdb`) para a aba Cursor
-
----
-
-## Instalação
-
-**1. Clone o repositório**
-```bash
-git clone https://github.com/seu-usuario/claude-token-monitor.git
-cd claude-token-monitor
-```
-
-**2. Instale as dependências**
-```bash
-pip install -r requirements.txt
-```
-
-Ou clique duas vezes em `install.bat`.
-
----
-
-## Como usar
-
-```bash
+```powershell
+python -m pip install -r requirements.txt
 python main.py
 ```
 
-Ou clique duas vezes em `run.bat`.
+Também é possível usar `install.bat`, `run.bat` ou `run_hidden.vbs`.
 
-O app inicia **minimizado na bandeja**. O ícone azul **CT** aparece no canto inferior direito da tela.
+- A janela inicia compacta, com o percentual do provedor selecionado. Passe o mouse para ver limites e horários de reset.
+- Clique em **⤢** para expandir e escolha Claude, Codex ou Cursor.
+- Clique em **↻** para atualizar. O resultado avisa a interface assim que termina.
+- Arraste pelo percentual na janela compacta ou pelo cabeçalho da janela expandida. A posição é preservada durante atualizações e mudanças de modo; a expansão é ajustada para caber na tela.
+- Clique em **—** para recolher. Para encerrar, use o menu do ícone na bandeja → Sair.
 
-### Ações disponíveis
+## Caminhos e persistência
 
-| Ação | Como fazer |
+| Dados | Local padrão |
 |---|---|
-| Abrir ou fechar a janela | Clique no ícone CT |
-| Ver % e reset sem abrir | Passe o mouse sobre o ícone CT |
-| Atualizar os dados | Botão **↻** no cabeçalho |
-| Calibrar os limites | Botão **⚙** no cabeçalho |
-| Fechar só a janela | Botão **✕** ou clique fora |
-| Mover a janela | Arraste pelo cabeçalho |
-| Encerrar o app | Botão direito no ícone → Sair |
+| Claude | `~/.claude/.credentials.json` e `~/.claude/projects` |
+| Codex | `~/.codex/auth.json` e `~/.codex/sessions` |
+| Cursor | `%APPDATA%/Cursor/auth.json`, banco local e `~/.cursor/projects` |
+| Cache Codex e log | `%LOCALAPPDATA%/SimpleLimite/` |
 
----
+`CODEX_HOME` e `CLAUDE_CONFIG_DIR` permitem usar diretórios personalizados. Esses caminhos independem da pasta do app. O cache Codex é separado por conta, preserva a hora original da consulta e não salva tokens OAuth, e-mail ou IDs de resgate de resets extras. O arquivo antigo `config.json` de calibração não é utilizado pela versão atual, que consulta limites reais.
 
-## Calibração
+No Codex, o consumo de hoje é calculado pelas diferenças entre os registros cumulativos das sessões, evitando atribuir ao dia atual todo o consumo de uma conversa iniciada antes. O histórico pode estar incompleto se o cliente não registrar eventos locais.
 
-O Claude Code calcula o uso internamente — o app não tem acesso direto a esses dados. A calibração resolve isso: você informa os valores reais e o app ajusta automaticamente.
+## Validação
 
-**Quando calibrar:** na primeira vez que instalar e sempre que a % ou o tempo mostrarem diferença em relação à página do Claude Code.
-
-### Passo a passo
-
-**1.** Abra [claude.ai/settings/claude-code](https://claude.ai/settings/claude-code) e anote:
-- O **percentual de uso atual** — exemplo: `28%`
-- O **tempo até o próximo reset** — exemplo: `3h 45min`
-
-**2.** No app, clique em **⚙**
-
-**3.** Preencha os campos:
-
-```
-LIMITE DE USO:   28      %
-TEMPO ATÉ RESET: 3   h  45  min
+```powershell
+python -m unittest discover -s tests -v
 ```
 
-**4.** Clique em **Calibrar**
+Os testes cobrem janelas de uso, créditos extras, resets, falhas de conexão, cache por conta, rate limit, consumo entre dias e atualização da interface após arrastar a janela.
 
-O app recalcula o limite de tokens com base na proporção e ancora o próximo reset no horário exato. Todos os resets seguintes são extrapolados automaticamente de 5 em 5 horas.
+## Referência e privacidade
 
----
+A integração Codex segue os formatos e endpoints documentados no código do [ai-usagebar](https://github.com/akitaonrails/ai-usagebar/tree/main/src/openai): `/backend-api/wham/usage` e `/backend-api/wham/rate-limit-reset-credits`. Esses endpoints dos clientes podem mudar; respostas sem janelas reconhecidas são tratadas como erro e preservam os últimos dados válidos.
 
-## Notificações
-
-O app verifica os limites a cada 60 segundos e envia notificações nativas do Windows:
-
-**Ao atingir 70% do limite:**
-> ⚠️ Limite de uso em 70%
-> 374.8K / 1.48M tokens usados. Considere iniciar uma nova sessão em breve.
-
-**60 minutos antes do reset:**
-> 🔄 Reset de limites próximo
-> Falta apenas 58 minutos para resetar seus limites de uso.
-
-Cada notificação dispara uma única vez por janela de reset.
-
----
-
-## Como funciona
-
-O Claude Code salva o histórico de cada conversa em arquivos `.jsonl` locais:
-
-```
-~/.claude/projects/<nome-do-projeto>/<session-id>.jsonl
-```
-
-Cada resposta contém um campo `usage` com os tokens consumidos:
-
-```json
-{
-  "input_tokens": 108,
-  "output_tokens": 1240,
-  "cache_creation_input_tokens": 512,
-  "cache_read_input_tokens": 94300
-}
-```
-
-O app lê todos esses arquivos, filtra pelo período relevante e agrega por projeto e data. O `cache_read_input_tokens` é excluído do cálculo de limite pois não contabiliza no rate limit da Anthropic.
-
-### Custo estimado — preços por 1 M tokens
-
-| Modelo | Input | Output | Cache criação | Cache leitura |
-|---|---|---|---|---|
-| Claude Opus 4.8 | $15.00 | $75.00 | $18.75 | $1.50 |
-| Claude Sonnet 4.6 | $3.00 | $15.00 | $3.75 | $0.30 |
-| Claude Haiku 4.5 | $0.80 | $4.00 | $1.00 | $0.08 |
-
-Valores baseados na tabela da Anthropic. Confirme em [anthropic.com/pricing](https://www.anthropic.com/pricing).
-
----
-
-## Configurações
-
-Edite o topo de `main.py` para ajustar o comportamento:
-
-| Variável | Padrão | Descrição |
-|---|---|---|
-| `ALERT_PCT` | `0.70` | % para disparar notificação de limite |
-| `RESET_INTERVAL_H` | `5` | Duração da janela de uso em horas |
-| `RESET_WARN_MINS` | `60` | Minutos antes do reset para notificar |
-
-Após a calibração, o arquivo `config.json` é criado automaticamente:
-
-```json
-{
-  "session_limit": 1484000,
-  "reset_anchor": "2026-06-29T17:15:00+00:00"
-}
-```
-
-| Chave | Descrição |
-|---|---|
-| `session_limit` | Limite de tokens calibrado |
-| `reset_anchor` | Instante UTC do próximo reset |
-
----
-
-## Iniciar com o Windows
-
-Para o app abrir automaticamente com o Windows:
-
-1. Pressione `Win + R` e execute `shell:startup`
-2. Crie um atalho de `run.bat` nessa pasta
-
----
-
-## Estrutura do projeto
-
-```
-claude-token-monitor/
-├── docs/
-│   ├── logo.png          # Ícone do app
-│   └── preview.png       # Screenshot
-├── main.py               # Aplicação principal
-├── config.json           # Calibração salva (gerado automaticamente)
-├── requirements.txt      # Dependências
-├── install.bat           # Instala dependências
-├── run.bat               # Inicia o app
-└── README.md
-```
-
----
-
-## Privacidade
-
-Este app lê arquivos locais do Claude Code e Codex. Para Claude e Cursor, também consulta as APIs oficiais de uso com o token OAuth já presente na máquina — nenhuma credencial extra é necessária.
-
----
+As consultas usam as credenciais locais e são enviadas aos respectivos provedores. A aba Claude mostra custos estimados do histórico conforme a tabela em `main.py`; esses valores não representam a cobrança do plano.
 
 ## Licença
 

@@ -22,14 +22,15 @@ import pystray
 from pystray import MenuItem as item
 from PySide6.QtWidgets import QApplication
 from ui import MonitorWindow
+from app_paths import DATA_DIR, codex_home
+from codex_usage import CodexApiPoller, normalize_limits
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
-CLAUDE_DIR   = Path.home() / ".claude"
+CLAUDE_DIR   = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude").expanduser()
 PROJECTS_DIR = CLAUDE_DIR / "projects"
 CREDS_FILE   = CLAUDE_DIR / ".credentials.json"
-CONFIG_FILE  = Path(__file__).parent / "config.json"
-LOG_FILE     = Path(__file__).parent / "simplelimite.log"
-CODEX_DIR    = Path.home() / ".codex"
+LOG_FILE     = DATA_DIR / "simplelimite.log"
+CODEX_DIR    = codex_home()
 CODEX_SESSIONS_DIR = CODEX_DIR / "sessions"
 CURSOR_DIR   = Path.home() / ".cursor"
 CURSOR_PROJECTS_DIR = CURSOR_DIR / "projects"
@@ -69,6 +70,7 @@ ALERT_PCT = 0.70
 
 def _log_error(context: str, exc: BaseException) -> None:
     try:
+        LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
         with LOG_FILE.open("a", encoding="utf-8") as f:
             f.write(f"\n[{datetime.now().isoformat(timespec='seconds')}] {context}\n")
             traceback.print_exception(type(exc), exc, exc.__traceback__, file=f)
@@ -168,7 +170,8 @@ def _parse_dt(v) -> "datetime | None":
     if not v:
         return None
     try:
-        return datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
     except Exception:
         return None
 
@@ -211,12 +214,12 @@ def _normalize(data: dict) -> list[dict]:
         if not isinstance(val, dict):
             continue
         pct_raw = val.get("utilization")
+        if pct_raw is None and key == "extra_usage" and val.get("monthly_limit"):
+            pct_raw = float(val.get("used_credits") or 0) / float(val["monthly_limit"]) * 100
         if pct_raw is None:
             continue
 
         pct = float(pct_raw)
-        if 0 < pct <= 1:          # decimal fraction → percent
-            pct *= 100
         pct = min(max(pct, 0), 100)
 
         reset_at = _parse_dt(val.get("resets_at") or val.get("reset_at"))
@@ -398,6 +401,7 @@ class CodexLoader:
         self.limits: list[dict] = []
         self.error: "str | None" = None
         self.updated_at: "datetime | None" = None
+        self.fetched_at = None
         self._lock = threading.Lock()
 
     def reload(self):
@@ -424,6 +428,7 @@ class CodexLoader:
             cwd = ""
             last_usage = None
             last_usage_ts = None
+            previous_usage = {}
 
             try:
                 with open(jf, encoding="utf-8", errors="ignore") as f:
@@ -447,6 +452,11 @@ class CodexLoader:
                         info = payload.get("info") or {}
                         usage = info.get("total_token_usage")
                         if usage:
+                            if ts and ts.astimezone().date() == today_date:
+                                # Cumulative session totals can span multiple days.
+                                today.add({k: max(0, int(v or 0) - int(previous_usage.get(k) or 0))
+                                           for k, v in usage.items()})
+                            previous_usage = usage
                             last_usage = usage
                             last_usage_ts = ts
 
@@ -463,8 +473,6 @@ class CodexLoader:
             s = CodexStats()
             s.add(last_usage)
             alltime.add(last_usage)
-            if last_usage_ts and last_usage_ts.astimezone().date() == today_date:
-                today.add(last_usage)
 
             name = _readable_path_name(cwd)
             if name not in projects:
@@ -479,33 +487,17 @@ class CodexLoader:
             self.today    = today
             self.alltime  = alltime
             self.projects = projects
-            self.limits   = [latest_limit] if latest_limit else self.limits
+            self.limits   = latest_limit if latest_limit else self.limits
+            if latest_limit:
+                self.fetched_at = latest_limit_ts
             self.error    = None if (alltime.total > 0 or latest_limit) else "Sem dados do Codex"
             self.updated_at = datetime.now()
 
     def _parse_limit(self, rate_limits, ts):
-        if not isinstance(rate_limits, dict):
-            return None
-        primary = rate_limits.get("primary") or {}
-        pct = primary.get("used_percent")
-        if pct is None:
-            return None
-        reset_at = None
-        if primary.get("resets_at"):
-            try:
-                reset_at = datetime.fromtimestamp(float(primary["resets_at"]), tz=timezone.utc)
-            except Exception:
-                reset_at = None
-        return {
-            "label": "Codex",
-            "pct": min(max(float(pct), 0), 100),
-            "reset_at": reset_at,
-            "kind": "timed",
-            "used_usd": 0,
-            "cap_usd": 0,
-            "is_session": True,
-            "fetched_at": ts,
-        }
+        try:
+            return normalize_limits(rate_limits, ts or datetime.now(timezone.utc))
+        except (ValueError, TypeError, OverflowError):
+            return []
 
     def mins_to_reset(self, lim: dict) -> int:
         ra = lim.get("reset_at")
@@ -1011,7 +1003,8 @@ def main():
     cursor_loader = CursorLoader()
     poller = ApiPoller()
     cursor_poller = CursorApiPoller(cursor_loader)
-    window = MonitorWindow(loader, poller, codex_loader, cursor_loader, cursor_poller)
+    codex_poller = CodexApiPoller()
+    window = MonitorWindow(loader, poller, codex_loader, cursor_loader, cursor_poller, codex_poller)
 
     def open_expanded(icon, _):
         window.request_ui_call(window.show_expanded)
@@ -1033,6 +1026,7 @@ def main():
 
     # Background: API polling
     poller.start()
+    codex_poller.start()
     cursor_poller.start()
 
     # Background: JSONL refresh loop
