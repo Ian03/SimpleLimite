@@ -24,6 +24,12 @@ from PySide6.QtWidgets import QApplication
 from ui import MonitorWindow
 from app_paths import DATA_DIR, codex_home
 from codex_usage import CodexApiPoller, normalize_limits
+try:
+    from opencode_usage import OpenCodeApiPoller, OpenCodeLoader, OpenCodeStats
+except Exception:
+    OpenCodeApiPoller = None
+    OpenCodeLoader = None
+    OpenCodeStats = None
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 CLAUDE_DIR   = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude").expanduser()
@@ -36,6 +42,7 @@ CURSOR_DIR   = Path.home() / ".cursor"
 CURSOR_PROJECTS_DIR = CURSOR_DIR / "projects"
 CURSOR_AUTH_FILE = Path(os.environ.get("APPDATA", "")) / "Cursor" / "auth.json"
 CURSOR_STATE_DB  = Path(os.environ.get("APPDATA", "")) / "Cursor" / "User" / "globalStorage" / "state.vscdb"
+OPENCODE_SERVER = os.environ.get("OPENCODE_SERVER", "http://localhost:4096")
 
 # ── Intervals ─────────────────────────────────────────────────────────────────
 POLL_API_SEC  = 60
@@ -1004,7 +1011,9 @@ def main():
     poller = ApiPoller()
     cursor_poller = CursorApiPoller(cursor_loader)
     codex_poller = CodexApiPoller()
-    window = MonitorWindow(loader, poller, codex_loader, cursor_loader, cursor_poller, codex_poller)
+    opencode_loader = OpenCodeLoader() if OpenCodeLoader else None
+    opencode_poller = OpenCodeApiPoller() if OpenCodeApiPoller else None
+    window = MonitorWindow(loader, poller, codex_loader, cursor_loader, cursor_poller, codex_poller, opencode_loader, opencode_poller)
 
     def open_expanded(icon, _):
         window.request_ui_call(window.show_expanded)
@@ -1028,6 +1037,11 @@ def main():
     poller.start()
     codex_poller.start()
     cursor_poller.start()
+    if opencode_poller:
+        try:
+            opencode_poller.start()
+        except Exception as exc:
+            _log_error("opencode poller start failed", exc)
 
     # Background: JSONL refresh loop
     def _jsonl_loop():
@@ -1036,6 +1050,11 @@ def main():
                 loader.reload()
                 codex_loader.reload()
                 cursor_loader.reload()
+                if opencode_loader:
+                    try:
+                        opencode_loader.reload()
+                    except Exception:
+                        pass
                 window.request_ui_update()
             except Exception as exc:
                 _log_error("JSONL refresh failed", exc)
@@ -1043,16 +1062,24 @@ def main():
     _thread(_jsonl_loop, "jsonl-refresh")
 
     # Initial JSONL load before first render
-    _thread(
-        lambda: (
-            loader.reload(),
-            codex_loader.reload(),
-            cursor_loader.reload(),
-            cursor_poller.fetch_now(),
-            window.request_ui_update(),
-        ),
-        "initial-refresh",
-    )
+    def _initial():
+        loader.reload()
+        codex_loader.reload()
+        cursor_loader.reload()
+        if opencode_loader:
+            try:
+                opencode_loader.reload()
+            except Exception:
+                pass
+        cursor_poller.fetch_now()
+        if opencode_poller:
+            try:
+                opencode_poller.fetch_now()
+            except Exception:
+                pass
+        window.request_ui_update()
+
+    _thread(_initial, "initial-refresh")
 
     # Start in minimal pill mode (always visible in corner)
     window.show()

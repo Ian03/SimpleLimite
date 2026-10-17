@@ -103,7 +103,7 @@ class MonitorWindow(QMainWindow):
     MINIMAL = "minimal"
     EXPANDED = "expanded"
 
-    def __init__(self, loader, poller, codex_loader, cursor_loader, cursor_poller, codex_poller):
+    def __init__(self, loader, poller, codex_loader, cursor_loader, cursor_poller, codex_poller, opencode_loader=None, opencode_poller=None):
         super().__init__()
         self.loader = loader
         self.poller = poller
@@ -111,6 +111,8 @@ class MonitorWindow(QMainWindow):
         self.cursor_loader = cursor_loader
         self.cursor_poller = cursor_poller
         self.codex_poller = codex_poller
+        self.opencode_loader = opencode_loader
+        self.opencode_poller = opencode_poller
         self._mode = self.MINIMAL
         self._tab = "Claude"
         self._quitting = False
@@ -130,6 +132,11 @@ class MonitorWindow(QMainWindow):
         self.poller.on_update(self.request_ui_update)
         self.cursor_poller.on_update(self.request_ui_update)
         self.codex_poller.on_update(self.request_ui_update)
+        if self.opencode_poller:
+            try:
+                self.opencode_poller.on_update(self.request_ui_update)
+            except Exception:
+                pass
         self._build()
         self._position_minimal()
         self._timer = self.startTimer(15000)
@@ -280,7 +287,7 @@ class MonitorWindow(QMainWindow):
         tabs.setSpacing(6)
         self._tab_group = QButtonGroup(self)
         self._tab_group.setExclusive(True)
-        for name in ("Claude", "Codex", "Cursor"):
+        for name in ("Claude", "Codex", "Cursor", "OpenCode"):
             button = QPushButton(name)
             button.setObjectName("tab")
             button.setCheckable(True)
@@ -369,6 +376,12 @@ class MonitorWindow(QMainWindow):
 
     def _set_tab(self, tab):
         self._tab = tab
+        if tab == "OpenCode" and getattr(self, "opencode_poller", None):
+            try:
+                import threading
+                threading.Thread(target=lambda: (self.opencode_poller.fetch_now(), self.request_ui_update()), name="switch-opencode", daemon=True).start()
+            except Exception:
+                pass
         self._update_ui()
 
     def _go_minimal(self):
@@ -399,6 +412,13 @@ class MonitorWindow(QMainWindow):
             return self.codex_loader, source.limits, source
         if self._tab == "Cursor":
             return self.cursor_loader, self.cursor_poller.limits or self.cursor_loader.limits, self.cursor_poller
+        if self._tab == "OpenCode":
+            if self.opencode_poller:
+                return self.opencode_loader or self.opencode_poller, getattr(self.opencode_poller, "limits", []), self.opencode_poller
+            if self.opencode_loader:
+                return self.opencode_loader, getattr(self.opencode_loader, "limits", []), self.opencode_loader
+            # fallback
+            return self.loader, self.poller.limits, self.poller
         return self.loader, self.poller.limits, self.poller
 
     def _update_minimal(self):
@@ -406,18 +426,29 @@ class MonitorWindow(QMainWindow):
         tooltip = [self._tab]
         for lim in limits:
             reset = lim.get("reset_at")
-            tooltip.append(f"{lim['label']}: {lim['pct']:.0f}% usado" +
-                           (f" · reset {reset.astimezone():%d/%m %H:%M}" if reset else ""))
+            line = f"{lim['label']}: {lim['pct']:.0f}% usado"
+            if reset:
+                line += f" · reset {reset.astimezone():%d/%m %H:%M}"
+            elif lim.get("detail"):
+                line += f" · {lim['detail']}"
+            tooltip.append(line)
         if getattr(source, "error", None):
             tooltip.append(source.error)
         self.root.setToolTip("\n".join(tooltip))
-        top = (source.top if self._tab == "Cursor" else limits[0] if limits else None)
+        top = None
+        try:
+            if hasattr(source, "top"):
+                top = source.top
+            elif limits:
+                top = limits[0]
+        except Exception:
+            top = limits[0] if limits else None
         if top is None:
             self._m_pct.setText("--%")
             self._m_pct.setStyleSheet(f"color: {MUTED}; font-weight: 700")
             self._m_ring.set_value(0, BORDER)
             return
-        pct = top["pct"]
+        pct = top.get("pct", 0)
         accent = _color(pct)
         self._m_ring.set_value(pct, accent)
         self._m_pct.setText(f"{pct:.0f}%")
@@ -431,23 +462,45 @@ class MonitorWindow(QMainWindow):
             for lim in limits:
                 self._render_bar(lim, source)
         else:
-            message = QLabel(f"⚠ {err}" if err else "Aguardando dados…")
+            if err:
+                text = f"⚠ {err}"
+            elif self._tab == "OpenCode":
+                text = ("Nenhuma sessão ativa do OpenCode para mostrar a janela do modelo. "
+                        "Abra o OpenCode e inicie uma conversa, depois clique em atualizar.")
+            else:
+                text = "Aguardando dados…"
+            message = QLabel(text)
             message.setObjectName("muted")
+            message.setWordWrap(True)
             self._limits_layout.addWidget(message)
         if self._tab == "Codex":
-            for note in self.codex_poller.notes:
+            for note in getattr(self.codex_poller, "notes", []):
                 self._limit_note(note)
             if source is self.codex_loader:
                 self._limit_note("Histórico local · resets extras não informados")
             else:
-                self._limit_note("API Codex" + (" · dados anteriores" if source.stale else " · sincronizado"))
-            if self.codex_poller.error:
+                try:
+                    self._limit_note("API Codex" + (" · dados anteriores" if source.stale else " · sincronizado"))
+                except Exception:
+                    self._limit_note("API Codex")
+            if getattr(self.codex_poller, "error", None):
                 self._limit_note(self.codex_poller.error, ORANGE)
+        elif self._tab == "OpenCode":
+            if limits:
+                self._limit_note("Janela de contexto do modelo em uso · o OpenCode não informa quota/créditos pela API local")
+            for note in getattr(self.opencode_poller, "notes", []):
+                self._limit_note(note)
+            cached_total = getattr(getattr(self.opencode_poller, "alltime", None), "total", 0)
+            if err and cached_total:
+                self._limit_note("Exibindo o último consumo salvo · dados podem estar desatualizados", ORANGE)
         elif err and limits:
             self._limit_note(f"Dados anteriores · {err}", ORANGE)
         timestamp = getattr(source, "fetched_at", None) or getattr(data, "updated_at", None)
         if timestamp:
-            timestamp = timestamp.astimezone()
+            try:
+                timestamp = timestamp.astimezone()
+            except Exception:
+                pass
         self._e_api_ts.setText(timestamp.strftime("%H:%M:%S") if timestamp else "")
         self._e_time.setText(timestamp.strftime("Atualizado %H:%M") if timestamp else "")
         if self._tab == "Claude":
@@ -458,10 +511,40 @@ class MonitorWindow(QMainWindow):
             self._fill_stat(self._c_today, self.codex_loader.today, "codex")
             self._fill_stat(self._c_alltime, self.codex_loader.alltime, "codex")
             projects = [(n, s.total, None, f"↑{_fmt_tok(s.inp)}  ↓{_fmt_tok(s.out)}  ctx {_fmt_tok(s.cached)}") for n, s in list(self.codex_loader.projects.items())[:12]]
-        else:
+        elif self._tab == "Cursor":
             self._fill_stat(self._c_today, self.cursor_loader.today, "cursor")
             self._fill_stat(self._c_alltime, self.cursor_loader.alltime, "cursor")
             projects = [(n, s.total, s.cost_cents / 100, f"{s.messages} respostas do agente") for n, s in list(self.cursor_loader.projects.items())[:12]]
+        elif self._tab == "OpenCode":
+            source = self.opencode_poller or self.opencode_loader
+            empty = type("S", (), {"total": 0, "inp": 0, "out": 0, "cached": 0,
+                                   "reasoning": 0, "cost": 0, "steps": 0, "sessions": 0})()
+            oc_stats = getattr(source, "alltime", None) or empty
+            oc_today = getattr(source, "today", None) or empty
+            self._fill_stat(self._c_today, oc_today, "opencode")
+            self._fill_stat(self._c_alltime, oc_stats, "opencode")
+            current_key = next((l.get("model") for l in limits
+                                if l.get("kind") == "context" and l.get("model")), None)
+            projects = [
+                (n, s.total, None,
+                 f"↑{_fmt_tok(s.inp)}  ↓{_fmt_tok(s.out)}  ⚡{_fmt_tok(s.cached)}"
+                 + (f"  · {s.steps} passos" if s.steps else "")
+                 + ("  · em uso" if n == current_key else ""))
+                for n, s in list((getattr(source, "projects", {}) or {}).items())[:12]
+            ]
+            if current_key:
+                idx = next((i for i, p in enumerate(projects) if p[0] == current_key), None)
+                if idx is None:
+                    projects.insert(0, (current_key, 0, None, "em uso · sem consumo hoje"))
+                else:
+                    projects.insert(0, projects.pop(idx))
+            if not projects and oc_stats.total:
+                projects = [("OpenCode", oc_stats.total, None,
+                             f"↑{_fmt_tok(oc_stats.inp)}  ↓{_fmt_tok(oc_stats.out)}")]
+        else:
+            self._fill_stat(self._c_today, self.loader.today, "cost")
+            self._fill_stat(self._c_alltime, self.loader.alltime, "cost")
+            projects = []
         self._clear_layout(self._projects_layout)
         for name, total, cost, detail in projects:
             self._project_row(name, total, cost, detail)
@@ -497,18 +580,23 @@ class MonitorWindow(QMainWindow):
         layout.addWidget(bar)
         mins = source.mins_to_reset(lim)
         reset = lim.get("reset_at")
-        if reset:
+        detail = lim.get("detail")
+        color_meta = None
+        if detail:
+            text = detail
+            color_meta = _color(pct)
+        elif lim.get("kind") == "credits":
+            text = f"{_fmt_cost(lim['used_usd'])} / {_fmt_cost(lim['cap_usd'])} usados" + (
+                f" · reset {reset.astimezone():%d/%m %H:%M}" if reset else "")
+        elif reset:
             remaining = f"em {_fmt_dur(mins)}" if reset > datetime.now(timezone.utc) else "aguardando atualização"
             text = f"{100 - pct:.0f}% disponível · reset {reset.astimezone():%d/%m %H:%M} ({remaining})"
         else:
             text = f"{100 - pct:.0f}% disponível · reset não informado"
-        if lim.get("kind") == "credits":
-            text = f"{_fmt_cost(lim['used_usd'])} / {_fmt_cost(lim['cap_usd'])} usados" + (
-                f" · reset {reset.astimezone():%d/%m %H:%M}" if reset else "")
         meta = QLabel(text)
         meta.setWordWrap(True)
         meta.setObjectName("muted")
-        meta.setStyleSheet(f"color: {GREEN if mins > 60 else ORANGE}; font-size: 8pt")
+        meta.setStyleSheet(f"color: {color_meta or (GREEN if mins > 60 else ORANGE)}; font-size: 8pt")
         layout.addWidget(meta)
         self._limits_layout.addWidget(item)
 
@@ -517,6 +605,9 @@ class MonitorWindow(QMainWindow):
         if kind == "cost":
             card._cost.setText(_fmt_cost(stats.cost))
             detail = f"↑ {_fmt_tok(stats.inp)}   ↓ {_fmt_tok(stats.out)}   ⚡ {_fmt_tok(stats.cr)}"
+        elif kind == "opencode":
+            card._cost.setText(f"ctx {_fmt_tok(stats.cached)}")
+            detail = f"↑ {_fmt_tok(stats.inp)}   ↓ {_fmt_tok(stats.out)}   ◈ {_fmt_tok(stats.reasoning)}"
         elif kind == "codex":
             card._cost.setText(f"ctx {_fmt_tok(stats.cached)}")
             detail = f"↑ {_fmt_tok(stats.inp)}   ↓ {_fmt_tok(stats.out)}   ◈ {_fmt_tok(stats.reasoning)}"
@@ -562,5 +653,15 @@ class MonitorWindow(QMainWindow):
             self.cursor_loader.reload()
             self.poller.fetch_now()
             self.cursor_poller.fetch_now()
+            if getattr(self, "opencode_poller", None):
+                try:
+                    self.opencode_poller.fetch_now()
+                except Exception:
+                    pass
+            if getattr(self, "opencode_loader", None):
+                try:
+                    self.opencode_loader.reload()
+                except Exception:
+                    pass
         finally:
             self.request_ui_update()

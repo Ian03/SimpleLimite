@@ -3,7 +3,7 @@
 
   # Simple Limite
 
-  Monitor de uso dos planos Claude Code, Codex e Cursor na bandeja do Windows.
+  Monitor de uso dos planos Claude Code, Codex, Cursor e OpenCode na bandeja do Windows.
 </div>
 
 O app consulta o uso dos planos com as credenciais já presentes na máquina e lê o histórico local para mostrar tokens de hoje, total e projetos. Os tokens do histórico são estatísticas: os percentuais de limite vêm dos provedores.
@@ -14,6 +14,7 @@ O app consulta o uso dos planos com as credenciais já presentes na máquina e l
 - **Codex:** janelas principal e secundária, incluindo uso semanal, revisão de código e limites adicionais, quando disponíveis. A duração informada pela API define o nome da janela; uma janela de 5 horas não é um limite diário.
 - **Codex:** plano, permissão de uso, limite atingido, saldo de créditos extras, resets extras disponíveis e sua primeira expiração, quando informados. O app apenas consulta esses resets.
 - **Cursor:** limites do plano pela API e histórico de eventos de uso.
+- **OpenCode:** consumo de tokens de hoje, total e por modelo, via API local e cache, mais a barra de contexto do modelo em uso. A barra compara o contexto atual da sessão com a janela de contexto que o OpenCode declara para aquele modelo, e mostra quantos tokens ainda estão disponíveis. Ao atualizar, a barra passa a apontar para o modelo que está em uso no momento e ele aparece fixado no topo da lista, marcado como *em uso*. O OpenCode não informa quota/créditos (percentuais de plano) pela API local, então não há barra de limite de plano.
 - **Reset:** percentual restante, data/hora local e tempo até a renovação. Um reset vencido aparece como aguardando atualização, sem zerar artificialmente o consumo.
 - **Sincronização:** fonte e horário da última consulta na aba Codex; erros continuam visíveis quando há dados anteriores. Sem API disponível, o Codex pode mostrar o último registro local, identificado como histórico.
 
@@ -31,7 +32,7 @@ python main.py
 Também é possível usar `install.bat`, `run.bat` ou `run_hidden.vbs`.
 
 - A janela inicia compacta, com o percentual do provedor selecionado. Passe o mouse para ver limites e horários de reset.
-- Clique em **⤢** para expandir e escolha Claude, Codex ou Cursor.
+- Clique em **⤢** para expandir e escolha Claude, Codex, Cursor ou OpenCode.
 - Clique em **↻** para atualizar. O resultado avisa a interface assim que termina.
 - Arraste pelo percentual na janela compacta ou pelo cabeçalho da janela expandida. A posição é preservada durante atualizações e mudanças de modo; a expansão é ajustada para caber na tela.
 - Clique em **—** para recolher. Para encerrar, use o menu do ícone na bandeja → Sair.
@@ -43,9 +44,14 @@ Também é possível usar `install.bat`, `run.bat` ou `run_hidden.vbs`.
 | Claude | `~/.claude/.credentials.json` e `~/.claude/projects` |
 | Codex | `~/.codex/auth.json` e `~/.codex/sessions` |
 | Cursor | `%APPDATA%/Cursor/auth.json`, banco local e `~/.cursor/projects` |
-| Cache Codex e log | `%LOCALAPPDATA%/SimpleLimite/` |
+| OpenCode | `~/.local/state/opencode/service.json` (URL e senha do servidor local) |
+| Cache Codex, OpenCode e log | `%LOCALAPPDATA%/SimpleLimite/` |
 
 `CODEX_HOME` e `CLAUDE_CONFIG_DIR` permitem usar diretórios personalizados. Esses caminhos independem da pasta do app. O cache Codex é separado por conta, preserva a hora original da consulta e não salva tokens OAuth, e-mail ou IDs de resgate de resets extras. O arquivo antigo `config.json` de calibração não é utilizado pela versão atual, que consulta limites reais.
+
+O OpenCode escuta em uma porta dinâmica; o app descobre o endereço e a senha em `~/.local/state/opencode/service.json` (ou `%XDG_STATE_HOME%/opencode`) e consulta `/api/experimental/session/stats`, `/api/model`, `/api/session/active`, `/api/session/{id}` e `/api/session/{id}/message`. A variável `OPENCODE_SERVER` força um endereço específico, por exemplo `http://127.0.0.1:4096`. Se o servidor não estiver rodando, a aba mostra o erro de conexão e preserva o último consumo salvo em cache.
+
+Os modelos são lidos dinamicamente de `/api/model`, então a barra sempre usa a janela de contexto dos modelos que você tem instalados agora, sem configuração manual. O contexto atual é aproximado pela última resposta da sessão (cache lido + entrada + saída); quando a conversa passa por uma compactação, o valor volta a subir do zero.
 
 No Codex, o consumo de hoje é calculado pelas diferenças entre os registros cumulativos das sessões, evitando atribuir ao dia atual todo o consumo de uma conversa iniciada antes. O histórico pode estar incompleto se o cliente não registrar eventos locais.
 
