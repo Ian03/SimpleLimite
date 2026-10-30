@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from PySide6.QtCore import Qt, Signal, QEvent
+from PySide6.QtCore import Qt, Signal, QEvent, QPropertyAnimation, QEasingCurve
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QApplication, QFrame, QHBoxLayout, QLabel, QMainWindow, QPushButton,
@@ -11,29 +11,31 @@ from PySide6.QtWidgets import (
 )
 
 
-BG = "#090b10"
-CARD = "#11151d"
-BORDER = "#242b38"
-TEXT = "#f1f5fb"
-MUTED = "#8a94a6"
-BLUE = "#70a7ff"
-GREEN = "#5bd6a2"
-ORANGE = "#ffb86b"
-RED = "#ff7185"
+BG = "#0f1115"
+CARD = "#161a21"
+BORDER = "#262c38"
+TEXT = "#e8ecf4"
+MUTED = "#8b94a5"
+BLUE = "#5eead4"
+GREEN = "#91b9a4"
+ORANGE = "#d9b77e"
+RED = "#df9196"
 
 QSS = f"""
-QWidget {{ color: {TEXT}; font-family: 'Segoe UI'; font-size: 10pt; }}
-QFrame#surface {{ background: {BG}; border: 1px solid {BORDER}; border-radius: 22px; }}
+QWidget {{ color: {TEXT}; font-family: 'Segoe UI', 'Noto Sans', sans-serif; font-size: 10pt; }}
+QFrame#surface {{ background: rgba(15, 17, 21, 255); border: 1px solid #262c38; border-radius: 18px; }}
 QFrame#header, QFrame#usageCard, QFrame#statCard, QFrame#projectCard {{
-    background: {CARD}; border: 1px solid #1b2230; border-radius: 15px;
+    background: {CARD}; border: 1px solid #262c38; border-radius: 12px;
 }}
+QFrame#header {{ background: transparent; border: 0; }}
+QFrame#capsule {{ background: rgba(15, 17, 21, 255); border: 1px solid #262c38; border-radius: 24px; }}
 QLabel#muted {{ color: {MUTED}; }}
 QLabel#sectionTitle {{ color: {MUTED}; font-size: 9pt; font-weight: 700; letter-spacing: 1px; }}
 QLabel#statValue {{ font-size: 19pt; font-weight: 700; }}
 QPushButton {{ border: 0; border-radius: 10px; padding: 7px 11px; color: {MUTED}; background: transparent; }}
-QPushButton:hover {{ color: {TEXT}; background: #202838; }}
-QPushButton#tab {{ background: #11151d; color: {MUTED}; font-weight: 600; }}
-QPushButton#tab:checked {{ background: #243650; color: {BLUE}; }}
+QPushButton:hover {{ color: {TEXT}; background: #1c212a; }}
+QPushButton#tab {{ background: #161a21; color: {MUTED}; font-weight: 600; }}
+QPushButton#tab:checked {{ background: #265c56; color: {BLUE}; border-bottom: 2px solid {BLUE}; }}
 QPushButton#expand {{ font-size: 13pt; padding: 2px 8px; }}
 QProgressBar {{ border: 0; border-radius: 4px; background: {BORDER}; max-height: 8px; text-align: center; }}
 QProgressBar::chunk {{ border-radius: 4px; background: {BLUE}; }}
@@ -114,7 +116,7 @@ class MonitorWindow(QMainWindow):
         self.opencode_loader = opencode_loader
         self.opencode_poller = opencode_poller
         self._mode = self.MINIMAL
-        self._tab = "Claude"
+        self._tab = "Codex"
         self._quitting = False
         self._drag_offset = None
         self._minimal_size = None
@@ -171,6 +173,12 @@ class MonitorWindow(QMainWindow):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
+            # Wayland delegates window positioning to the compositor.
+            handle = self.windowHandle()
+            if QApplication.platformName().startswith("wayland") and handle and handle.startSystemMove():
+                self._drag_offset = None
+                event.accept()
+                return
             self._drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             event.accept()
 
@@ -196,6 +204,8 @@ class MonitorWindow(QMainWindow):
         return super().eventFilter(obj, event)
 
     def _position_minimal(self):
+        if QApplication.platformName().startswith("wayland"):
+            return
         if self._user_position is not None:
             self.move(self._user_position)
             return
@@ -203,6 +213,10 @@ class MonitorWindow(QMainWindow):
         self.move(screen.right() - self.width() - 14, screen.bottom() - self.height() - 14)
 
     def _position_expanded(self):
+        # Wayland owns top-level positioning. Resizing the existing surface
+        # preserves its compositor-managed location; move() cannot restore it.
+        if QApplication.platformName().startswith("wayland"):
+            return
         if self._user_position is not None:
             screen = (QApplication.screenAt(self._user_position) or QApplication.primaryScreen()).availableGeometry()
             self.move(max(screen.left(), min(self._user_position.x(), screen.right() - self.width())),
@@ -214,8 +228,8 @@ class MonitorWindow(QMainWindow):
     def _clear(self):
         layout = self.root_layout
         self._clear_layout(layout)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(9)
+        layout.setContentsMargins(18, 16, 18, 16)
+        layout.setSpacing(12)
         return layout
 
     def _build(self):
@@ -233,19 +247,26 @@ class MonitorWindow(QMainWindow):
             self._position_minimal()
         else:
             self._build_expanded()
-            self.setFixedSize(420, 630)
+            screen = (QApplication.screenAt(self._user_position) if self._user_position is not None else self.screen())
+            area = (screen or QApplication.primaryScreen()).availableGeometry()
+            self.setFixedSize(min(420, area.width()), min(630, area.height()))
             self._position_expanded()
 
     def _build_minimal(self):
-        self.root.setObjectName("surface")
+        self.root.setObjectName("capsule")
+        self.root.setStyleSheet(QSS)
         layout = self._clear()
-        layout.setContentsMargins(12, 8, 8, 8)
+        layout.setContentsMargins(14, 9, 8, 9)
         layout.setSpacing(8)
         row = QHBoxLayout()
         row.setSpacing(8)
         layout.addLayout(row)
         self._m_ring = UsageRing()
         row.addWidget(self._m_ring)
+        self._m_service = QLabel(self._tab)
+        self._m_service.setObjectName("muted")
+        self._m_service.installEventFilter(self)
+        row.addWidget(self._m_service)
         self._m_pct = QLabel("--%")
         self._m_pct.installEventFilter(self)
         self._m_ring.installEventFilter(self)
@@ -253,11 +274,13 @@ class MonitorWindow(QMainWindow):
         row.addWidget(self._m_pct)
         expand = QPushButton("⤢")
         expand.setObjectName("expand")
+        expand.setToolTip("Expandir painel")
         expand.clicked.connect(self._go_expanded)
         row.addWidget(expand)
 
     def _build_expanded(self):
         self.root.setObjectName("surface")
+        self.root.setStyleSheet(QSS)
         layout = self._clear()
         header = QFrame()
         header.setObjectName("header")
@@ -276,9 +299,11 @@ class MonitorWindow(QMainWindow):
         self._e_time.setObjectName("muted")
         h.addWidget(self._e_time)
         refresh = QPushButton("↻")
+        refresh.setToolTip("Atualizar dados")
         refresh.clicked.connect(self._manual_refresh)
         h.addWidget(refresh)
         close = QPushButton("—")
+        close.setToolTip("Recolher painel")
         close.clicked.connect(self._go_minimal)
         h.addWidget(close)
         layout.addWidget(header)
@@ -287,7 +312,7 @@ class MonitorWindow(QMainWindow):
         tabs.setSpacing(6)
         self._tab_group = QButtonGroup(self)
         self._tab_group.setExclusive(True)
-        for name in ("Claude", "Codex", "Cursor", "OpenCode"):
+        for name in ("Codex", "Claude", "Cursor", "OpenCode"):
             button = QPushButton(name)
             button.setObjectName("tab")
             button.setCheckable(True)
@@ -298,7 +323,7 @@ class MonitorWindow(QMainWindow):
         layout.addLayout(tabs)
 
         section = QHBoxLayout()
-        title = QLabel("LIMITES DE USO")
+        title = QLabel("Consumo e limites")
         title.setObjectName("sectionTitle")
         section.addWidget(title)
         section.addStretch(1)
@@ -311,7 +336,7 @@ class MonitorWindow(QMainWindow):
         self._e_limits.setObjectName("usageCard")
         self._limits_layout = QVBoxLayout(self._e_limits)
         self._limits_layout.setContentsMargins(12, 8, 12, 10)
-        self._limits_layout.setSpacing(7)
+        self._limits_layout.setSpacing(16)
         limits_scroll = QScrollArea()
         limits_scroll.setWidgetResizable(True)
         limits_scroll.setWidget(self._e_limits)
@@ -322,12 +347,12 @@ class MonitorWindow(QMainWindow):
         cards = QHBoxLayout()
         cards.setSpacing(8)
         self._c_today = self._make_stat_card("Hoje", BLUE)
-        self._c_alltime = self._make_stat_card("Total", GREEN)
+        self._c_alltime = self._make_stat_card("Total", BLUE)
         cards.addWidget(self._c_today)
         cards.addWidget(self._c_alltime)
         layout.addLayout(cards)
 
-        projects_header = QLabel("PROJETOS")
+        projects_header = QLabel("Atividade por projeto")
         projects_header.setObjectName("sectionTitle")
         layout.addWidget(projects_header)
         self._e_proj = QScrollArea()
@@ -396,6 +421,12 @@ class MonitorWindow(QMainWindow):
         self.show()
         self.raise_()
         self._update_ui()
+        self._fade = QPropertyAnimation(self, b"windowOpacity", self)
+        self._fade.setDuration(160)
+        self._fade.setStartValue(0.85)
+        self._fade.setEndValue(1.0)
+        self._fade.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._fade.start()
 
     def show_expanded(self):
         self._go_expanded()
@@ -596,7 +627,7 @@ class MonitorWindow(QMainWindow):
         meta = QLabel(text)
         meta.setWordWrap(True)
         meta.setObjectName("muted")
-        meta.setStyleSheet(f"color: {color_meta or (GREEN if mins > 60 else ORANGE)}; font-size: 8pt")
+        meta.setStyleSheet(f"color: {color_meta or MUTED}; font-size: 8pt")
         layout.addWidget(meta)
         self._limits_layout.addWidget(item)
 
@@ -636,7 +667,7 @@ class MonitorWindow(QMainWindow):
         right.addWidget(total_label, alignment=Qt.AlignmentFlag.AlignRight)
         if cost is not None:
             cost_label = QLabel(_fmt_cost(cost))
-            cost_label.setStyleSheet(f"color: {GREEN}; font-size: 8pt")
+            cost_label.setStyleSheet(f"color: {MUTED}; font-size: 8pt")
             right.addWidget(cost_label, alignment=Qt.AlignmentFlag.AlignRight)
         layout.addLayout(right)
         self._projects_layout.addWidget(card)

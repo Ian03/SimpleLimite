@@ -17,12 +17,16 @@ from pathlib import Path
 
 import requests as _requests
 
-from PIL import Image, ImageDraw, ImageFont
-import pystray
-from pystray import MenuItem as item
-from PySide6.QtWidgets import QApplication
+# Explicit positioning is required for the taskbar widget. Native Wayland
+# leaves top-level placement to the compositor; use XWayland when available.
+if sys.platform.startswith("linux") and os.environ.get("DISPLAY"):
+    os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
+
+from PySide6.QtCore import Qt, QRect
+from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QFont
+from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 from ui import MonitorWindow
-from app_paths import DATA_DIR, codex_home
+from app_paths import DATA_DIR, codex_home, cursor_config_dir
 from codex_usage import CodexApiPoller, normalize_limits
 try:
     from opencode_usage import OpenCodeApiPoller, OpenCodeLoader, OpenCodeStats
@@ -40,8 +44,8 @@ CODEX_DIR    = codex_home()
 CODEX_SESSIONS_DIR = CODEX_DIR / "sessions"
 CURSOR_DIR   = Path.home() / ".cursor"
 CURSOR_PROJECTS_DIR = CURSOR_DIR / "projects"
-CURSOR_AUTH_FILE = Path(os.environ.get("APPDATA", "")) / "Cursor" / "auth.json"
-CURSOR_STATE_DB  = Path(os.environ.get("APPDATA", "")) / "Cursor" / "User" / "globalStorage" / "state.vscdb"
+CURSOR_AUTH_FILE = cursor_config_dir() / "auth.json"
+CURSOR_STATE_DB  = cursor_config_dir() / "User" / "globalStorage" / "state.vscdb"
 OPENCODE_SERVER = os.environ.get("OPENCODE_SERVER", "http://localhost:4096")
 
 # ── Intervals ─────────────────────────────────────────────────────────────────
@@ -984,19 +988,38 @@ class ApiPoller:
 # ════════════════════════════════════════════════════════════════════════════════
 #  Tray icon image
 # ════════════════════════════════════════════════════════════════════════════════
-def _make_icon() -> Image.Image:
-    size = 64
-    img  = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    d    = ImageDraw.Draw(img)
-    d.ellipse([2, 2, 62, 62], fill="#70a7ff")
-    try:    font = ImageFont.truetype("arialbd.ttf", 22)
-    except Exception:
-        try: font = ImageFont.truetype("arial.ttf", 22)
-        except Exception: font = ImageFont.load_default()
-    bb = d.textbbox((0, 0), "CT", font=font)
-    tw, th = bb[2]-bb[0], bb[3]-bb[1]
-    d.text(((size-tw)//2 - bb[0], (size-th)//2 - bb[1]), "CT", fill="white", font=font)
-    return img
+def _make_icon() -> QIcon:
+    pixmap = QPixmap(64, 64)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor("#70a7ff"))
+    painter.drawEllipse(2, 2, 60, 60)
+    painter.setPen(QColor("white"))
+    font = QFont()
+    font.setPixelSize(22)
+    font.setBold(True)
+    painter.setFont(font)
+    painter.drawText(QRect(0, 0, 64, 64), Qt.AlignmentFlag.AlignCenter, "SL")
+    painter.end()
+    return QIcon(pixmap)
+
+
+def create_tray(window):
+    tray = QSystemTrayIcon(_make_icon(), window)
+    tray.setToolTip("Simple Limite")
+    menu = QMenu(window)
+    menu.addAction("Abrir detalhado", window.show_expanded)
+    menu.addAction("Sair", window.quit)
+    tray.setContextMenu(menu)
+    tray.activated.connect(
+        lambda reason: window.show_expanded()
+        if reason in (QSystemTrayIcon.ActivationReason.Trigger,
+                      QSystemTrayIcon.ActivationReason.DoubleClick) else None
+    )
+    tray.show()
+    return tray
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -1015,23 +1038,8 @@ def main():
     opencode_poller = OpenCodeApiPoller() if OpenCodeApiPoller else None
     window = MonitorWindow(loader, poller, codex_loader, cursor_loader, cursor_poller, codex_poller, opencode_loader, opencode_poller)
 
-    def open_expanded(icon, _):
-        window.request_ui_call(window.show_expanded)
-
-    def quit_app(icon, _):
-        icon.stop()
-        window.request_ui_call(window.quit)
-
-    tray = pystray.Icon(
-        "claude-tokens",
-        _make_icon(),
-        "Claude Token Monitor",
-        menu=pystray.Menu(
-            item("Abrir detalhado", open_expanded, default=True),
-            item("Sair", quit_app),
-        ),
-    )
-    tray.run_detached()
+    tray = create_tray(window)
+    qt_app.aboutToQuit.connect(tray.hide)
 
     # Background: API polling
     poller.start()
@@ -1085,7 +1093,7 @@ def main():
     window.show()
     window._update_ui()
     qt_app.exec()
-    tray.stop()
+    tray.hide()
 
 
 if __name__ == "__main__":

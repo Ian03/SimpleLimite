@@ -3,7 +3,7 @@
 
   # Simple Limite
 
-  Monitor de uso dos planos Claude Code, Codex, Cursor e OpenCode na bandeja do Windows.
+  Monitor de uso dos planos Claude Code, Codex, Cursor e OpenCode na bandeja do Windows e do Linux (incluindo Fedora KDE).
 </div>
 
 O app consulta o uso dos planos com as credenciais já presentes na máquina e lê o histórico local para mostrar tokens de hoje, total e projetos. Os tokens do histórico são estatísticas: os percentuais de limite vêm dos provedores.
@@ -22,17 +22,34 @@ O uso dos planos é consultado a cada 60 segundos e o histórico local a cada 30
 
 ## Instalação e execução
 
-Requisitos: Windows 10/11, Python 3.10+ e os clientes dos provedores instalados e autenticados.
+Requisitos: Windows 10/11 ou Linux, Python 3.10+ e os clientes dos provedores instalados e autenticados.
 
 ```powershell
 python -m pip install -r requirements.txt
 python main.py
 ```
 
-Também é possível usar `install.bat`, `run.bat` ou `run_hidden.vbs`.
+No Windows, também é possível usar `install.bat`, `run.bat` ou `run_hidden.vbs`.
 
-- A janela inicia compacta, com o percentual do provedor selecionado. Passe o mouse para ver limites e horários de reset.
-- Clique em **⤢** para expandir e escolha Claude, Codex, Cursor ou OpenCode.
+### Fedora KDE
+
+Instale o Python, o pip e as bibliotecas gráficas:
+
+```sh
+sudo dnf install python3 python3-pip libglvnd-glx libegl libxkbcommon libxkbcommon-x11 xcb-util-cursor xorg-x11-server-Xwayland
+sh install.sh
+sh run.sh
+```
+
+O instalador cria um ambiente `.venv` e um atalho **Simple Limite** no menu do KDE. Mantenha a pasta do app no mesmo lugar; se movê-la, execute o instalador novamente. Não execute o app com `sudo`.
+
+A bandeja usa `QSystemTrayIcon`, que integra com o KDE via StatusNotifierItem ([documentação Qt](https://doc.qt.io/qt-6/qsystemtrayicon.html)). Nas sessões Wayland do Fedora KDE, o app seleciona XWayland automaticamente quando `DISPLAY` está disponível, permitindo manter a cápsula junto à barra e expandir dentro da área útil do monitor. Uma configuração explícita de `QT_QPA_PLATFORM` é respeitada; no Wayland nativo, o posicionamento fica sob controle do compositor.
+
+No Linux, o Cursor é lido de `$XDG_CONFIG_HOME/Cursor` (padrão `~/.config/Cursor`). Cache e log ficam em `$XDG_DATA_HOME/SimpleLimite` (padrão `~/.local/share/SimpleLimite`).
+
+- A interface usa uma paleta escura com destaque turquesa, cards arredondados e transição suave ao expandir.
+- A janela inicia compacta, com Codex selecionado e o nome do provedor ao lado do percentual. Passe o mouse para ver limites e horários de reset.
+- Clique em **⤢** para expandir e escolha Codex, Claude, Cursor ou OpenCode.
 - Clique em **↻** para atualizar. O resultado avisa a interface assim que termina.
 - Arraste pelo percentual na janela compacta ou pelo cabeçalho da janela expandida. A posição é preservada durante atualizações e mudanças de modo; a expansão é ajustada para caber na tela.
 - Clique em **—** para recolher. Para encerrar, use o menu do ícone na bandeja → Sair.
