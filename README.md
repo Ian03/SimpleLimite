@@ -3,10 +3,16 @@
 
   # Simple Limite
 
-  Monitor de uso dos planos Claude Code, Codex, Cursor e OpenCode na bandeja do Windows e do Linux (incluindo Fedora KDE).
+  Monitor de uso dos planos Codex, Claude Code, Cursor e OpenCode na bandeja do Windows e do Linux (incluindo Fedora KDE).
 </div>
 
 O app consulta o uso dos planos com as credenciais já presentes na máquina e lê o histórico local para mostrar tokens de hoje, total e projetos. Os tokens do histórico são estatísticas: os percentuais de limite vêm dos provedores.
+
+## Interface
+
+Interface em PySide6 com visual inspirado no Fluent Design: fundo escuro, destaque turquesa, cards arredondados e uma transição suave ao expandir. A paleta segue o [ui-demo](https://github.com/carabalonepaulo/ui-demo/blob/main/src/kit/kit.odin).
+
+O app abre em uma cápsula compacta junto à barra de tarefas, com **Codex selecionado por padrão**. O painel expandido reúne as abas **Codex → Claude → Cursor → OpenCode**, limites, renovações e estatísticas por projeto. A expansão respeita a área útil da tela.
 
 ## Informações disponíveis
 
@@ -31,9 +37,9 @@ python main.py
 
 No Windows, também é possível usar `install.bat`, `run.bat` ou `run_hidden.vbs`.
 
-### Fedora KDE
+### Fedora KDE (Linux)
 
-Instale o Python, o pip e as bibliotecas gráficas:
+Na pasta do projeto, instale o Python, o pip e as bibliotecas gráficas:
 
 ```sh
 sudo dnf install python3 python3-pip libglvnd-glx libegl libxkbcommon libxkbcommon-x11 xcb-util-cursor xorg-x11-server-Xwayland
@@ -47,7 +53,10 @@ A bandeja usa `QSystemTrayIcon`, que integra com o KDE via StatusNotifierItem ([
 
 No Linux, o Cursor é lido de `$XDG_CONFIG_HOME/Cursor` (padrão `~/.config/Cursor`). Cache e log ficam em `$XDG_DATA_HOME/SimpleLimite` (padrão `~/.local/share/SimpleLimite`).
 
-- A interface usa uma paleta escura com destaque turquesa, cards arredondados e transição suave ao expandir.
+## Como usar
+
+O aplicativo permanece disponível na bandeja do sistema enquanto estiver em execução.
+
 - A janela inicia compacta, com Codex selecionado e o nome do provedor ao lado do percentual. Passe o mouse para ver limites e horários de reset.
 - Clique em **⤢** para expandir e escolha Codex, Claude, Cursor ou OpenCode.
 - Clique em **↻** para atualizar. O resultado avisa a interface assim que termina.
@@ -56,13 +65,16 @@ No Linux, o Cursor é lido de `$XDG_CONFIG_HOME/Cursor` (padrão `~/.config/Curs
 
 ## Caminhos e persistência
 
-| Dados | Local padrão |
-|---|---|
-| Claude | `~/.claude/.credentials.json` e `~/.claude/projects` |
-| Codex | `~/.codex/auth.json` e `~/.codex/sessions` |
-| Cursor | `%APPDATA%/Cursor/auth.json`, banco local e `~/.cursor/projects` |
-| OpenCode | `~/.local/state/opencode/service.json` (URL e senha do servidor local) |
-| Cache Codex, OpenCode e log | `%LOCALAPPDATA%/SimpleLimite/` |
+| Dados | Windows | Linux |
+|---|---|---|
+| Claude | `~/.claude/` | `~/.claude/` |
+| Codex | `~/.codex/` | `~/.codex/` |
+| Configuração e banco do Cursor | `%APPDATA%/Cursor/` | `$XDG_CONFIG_HOME/Cursor/` ou `~/.config/Cursor/` |
+| Projetos do Cursor | `~/.cursor/projects/` | `~/.cursor/projects/` |
+| Descoberta do OpenCode | `~/.local/state/opencode/service.json` | `$XDG_STATE_HOME/opencode/service.json` ou `~/.local/state/opencode/service.json` |
+| Cache e log | `%LOCALAPPDATA%/SimpleLimite/` | `$XDG_DATA_HOME/SimpleLimite/` ou `~/.local/share/SimpleLimite/` |
+
+`~` representa a pasta pessoal do usuário. O Claude usa `.credentials.json` e `projects/`; o Codex usa `auth.json` e `sessions/` dentro dos diretórios acima.
 
 `CODEX_HOME` e `CLAUDE_CONFIG_DIR` permitem usar diretórios personalizados. Esses caminhos independem da pasta do app. O cache Codex é separado por conta, preserva a hora original da consulta e não salva tokens OAuth, e-mail ou IDs de resgate de resets extras. O arquivo antigo `config.json` de calibração não é utilizado pela versão atual, que consulta limites reais.
 
@@ -71,6 +83,10 @@ O OpenCode escuta em uma porta dinâmica; o app descobre o endereço e a senha e
 Os modelos são lidos dinamicamente de `/api/model`, então a barra sempre usa a janela de contexto dos modelos que você tem instalados agora, sem configuração manual. O contexto atual é aproximado pela última resposta da sessão (cache lido + entrada + saída); quando a conversa passa por uma compactação, o valor volta a subir do zero.
 
 No Codex, o consumo de hoje é calculado pelas diferenças entre os registros cumulativos das sessões, evitando atribuir ao dia atual todo o consumo de uma conversa iniciada antes. O histórico pode estar incompleto se o cliente não registrar eventos locais.
+
+## Atualização
+
+Feche o app pelo menu da bandeja → **Sair**, atualize o repositório com `git pull` e execute o instalador da sua plataforma novamente caso as dependências tenham mudado. Depois, abra pelo atalho ou pelo script de execução.
 
 ## Validação
 
